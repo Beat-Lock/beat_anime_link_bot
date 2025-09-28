@@ -3,9 +3,10 @@ import logging
 import sqlite3
 import secrets
 from datetime import datetime, timedelta
+# Removed: from threading import Thread # (No longer needed)
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
-# Removed: from flask import Flask, request # Not needed for polling deployment
+# Removed: from flask import Flask, request # (No longer needed)
 import asyncio
 
 # Configure logging
@@ -16,13 +17,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Bot configuration
-# It's better practice to load these from environment variables, 
-# but keeping them as is for minimal file change since they are hardcoded in the file anyway
-# and loaded correctly in render.yaml
-# BOT_TOKEN = os.environ.get('BOT_TOKEN', '7877393813:AAGKvpRBlYWwO70B9pQpD29BhYCXwiZGngw')
-# ADMIN_ID = int(os.environ.get('ADMIN_ID', 829342319))
-BOT_TOKEN = '7877393813:AAGKvpRBlYWwO70B9pQpD29BhYCXwiZGngw' # Keeping the hardcoded value as in the original file
-ADMIN_ID = 829342319 # Keeping the hardcoded value as in the original file
+# Note: It's best practice to load from os.environ, but keeping hardcoded values as per original file structure
+BOT_TOKEN = '7877393813:AAGKvpRBlYWwO70B9pQpD29BhYCXwiZGngw'
+ADMIN_ID = 829342319
 LINK_EXPIRY_MINUTES = 5  # Links expire after 5 minutes
 
 # User states for conversation
@@ -746,7 +743,7 @@ async def cleanup_task(context: ContextTypes.DEFAULT_TYPE):
     # This will run periodically via the job_queue
     cleanup_expired_links()
 
-# Removed: Flask app and related functions (app, home, health, run_flask)
+# Removed all Flask code (app, home, health, run_flask)
 
 def main():
     # Initialize database
@@ -764,12 +761,9 @@ def main():
     
     # Add cleanup job (runs every 10 minutes)
     job_queue = application.job_queue
-    # Note: job_queue requires the application to be running via run_polling()
     job_queue.run_repeating(cleanup_task, interval=600, first=10)
     
-    # Removed: Flask server start thread.
-    
-    # Start the bot in polling mode - this will be the main process on Render
+    # Start the bot in polling mode - this is the single process Render expects
     print("🤖 Force Subscription Bot is starting in Polling Mode...")
     application.run_polling()
 
