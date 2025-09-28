@@ -3,10 +3,10 @@ import logging
 import sqlite3
 import secrets
 from datetime import datetime, timedelta
-# Removed: from threading import Thread # (No longer needed)
+# The flask import below is REMOVED
+# from flask import Flask, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
-# Removed: from flask import Flask, request # (No longer needed)
 import asyncio
 
 # Configure logging
@@ -17,7 +17,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Bot configuration
-# Note: It's best practice to load from os.environ, but keeping hardcoded values as per original file structure
 BOT_TOKEN = '7877393813:AAGKvpRBlYWwO70B9pQpD29BhYCXwiZGngw'
 ADMIN_ID = 829342319
 LINK_EXPIRY_MINUTES = 5  # Links expire after 5 minutes
@@ -743,13 +742,14 @@ async def cleanup_task(context: ContextTypes.DEFAULT_TYPE):
     # This will run periodically via the job_queue
     cleanup_expired_links()
 
-# Removed all Flask code (app, home, health, run_flask)
+# All Flask related code (app, home, health, run_flask) has been REMOVED.
 
 def main():
     # Initialize database
     init_db()
     
     # Create Application
+    # Note: Application.builder().build() automatically sets up the JobQueue if installed
     application = Application.builder().token(BOT_TOKEN).build()
     
     # Add handlers
@@ -761,7 +761,10 @@ def main():
     
     # Add cleanup job (runs every 10 minutes)
     job_queue = application.job_queue
+    # Now that job-queue is installed, this should work.
     job_queue.run_repeating(cleanup_task, interval=600, first=10)
+    
+    # The Flask server start thread logic has been REMOVED.
     
     # Start the bot in polling mode - this is the single process Render expects
     print("🤖 Force Subscription Bot is starting in Polling Mode...")
