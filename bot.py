@@ -22,7 +22,8 @@ ADMIN_ID = 829342319
 LINK_EXPIRY_MINUTES = 5  # Links expire after 5 minutes
 
 # User states for conversation
-ADD_CHANNEL_USERNAME, ADD_CHANNEL_TITLE = range(2)
+# === FIX: ADDED NEW STATE FOR MANUAL LINK GENERATION ===
+ADD_CHANNEL_USERNAME, ADD_CHANNEL_TITLE, GENERATE_LINK_CHANNEL_USERNAME = range(3)
 user_states = {}
 
 # Initialize databases
@@ -186,11 +187,16 @@ async def check_force_subscription(user_id, context):
     
     for channel_username, channel_title in channels:
         try:
+            # Check if bot is an admin in the channel and the user is a member
             member = await context.bot.get_chat_member(channel_username, user_id)
             if member.status in ['left', 'kicked']:
                 not_joined_channels.append((channel_username, channel_title))
         except Exception as e:
+            # This handles cases where the channel is private, or the bot is not in the channel
             logger.error(f"Error checking subscription for {channel_username}: {e}")
+            # If the check fails, assume the user needs to join (to be safe)
+            # A more robust solution would check the specific exception
+            not_joined_channels.append((channel_username, channel_title))
     
     return not_joined_channels
 
@@ -217,6 +223,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # User hasn't joined all required channels
             keyboard = []
             for channel_username, channel_title in not_joined_channels:
+                # Remove '@' for the URL
                 keyboard.append([InlineKeyboardButton(f"📢 JOIN {channel_title}", url=f"https://t.me/{channel_username[1:]}")])
             
             keyboard.append([InlineKeyboardButton("✅ VERIFY SUBSCRIPTION", callback_data="verify_subscription")])
@@ -313,6 +320,7 @@ async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT
     # User is subscribed to all channels - generate access link
     try:
         chat = await context.bot.get_chat(channel_username)
+        # Note: Bot must be an Admin in the target channel to create an invite link
         invite_link = await context.bot.create_chat_invite_link(
             chat.id, 
             member_limit=1,  # Single use
@@ -330,7 +338,8 @@ async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT
             f"Enjoy the content! 🍿"
         )
     except Exception as e:
-        await update.message.reply_text("❌ Error generating access link.")
+        logger.error(f"Error generating invite link for {channel_username}: {e}")
+        await update.message.reply_text("❌ Error generating access link. Make sure the bot is an **Admin** in the target channel and has the right to create invite links.")
 
 # Admin commands
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -437,7 +446,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"Enjoy the content! 🍿"
             )
         except Exception as e:
-            await query.edit_message_text("❌ Error generating access link.")
+            logger.error(f"Error generating invite link for {channel_username}: {e}")
+            await query.edit_message_text("❌ Error generating access link. Make sure the bot is an **Admin** in the target channel and has the right to create invite links.")
     
     # Admin panel handlers
     elif data == "admin_stats":
@@ -465,34 +475,27 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "manage_force_sub":
         await show_force_sub_management(query, context)
     
+    # === FIX: MODIFIED THIS SECTION TO PROMPT FOR CHANNEL USERNAME ===
     elif data == "generate_links":
         if not is_admin(user_id):
             await query.edit_message_text("❌ Admin only.")
             return
         
-        channels = get_all_force_sub_channels()
+        user_states[user_id] = GENERATE_LINK_CHANNEL_USERNAME
         
-        if not channels:
-            keyboard = [[InlineKeyboardButton("📺 ADD CHANNEL", callback_data="add_channel_start")],
-                       [InlineKeyboardButton("🔙 BACK", callback_data="admin_back")]]
-            await query.edit_message_text(
-                "❌ No force sub channels found!\n\nPlease add channels first.",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-            return
-        
-        keyboard = []
-        for channel_username, channel_title in channels:
-            keyboard.append([InlineKeyboardButton(f"🔗 {channel_title}", callback_data=f"genlink_{channel_username}")])
-        
-        keyboard.append([InlineKeyboardButton("🔙 BACK", callback_data="admin_back")])
+        keyboard = [[InlineKeyboardButton("🔙 CANCEL", callback_data="admin_back")]]
         
         await query.edit_message_text(
             "🔗 **GENERATE CHANNEL LINKS**\n\n"
-            "Select a channel to generate expirable links:",
+            "Please send the **username** (starting with @) of the channel "
+            " you want to generate a one-time, expirable link for.\n\n"
+            "**Note:** This channel does *not* need to be in the Force Subscription list.",
+            parse_mode='Markdown',
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
+    # =================================================================
     
+    # This remains for generating a link directly from a Force Sub Channel's details
     elif data.startswith("genlink_"):
         if not is_admin(user_id):
             await query.edit_message_text("❌ Admin only.")
@@ -732,6 +735,35 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text(
                 "❌ Error adding channel. It might already exist or there was a database error."
             )
+            
+    # === FIX: NEW STATE HANDLER FOR MANUAL LINK GENERATION ===
+    elif state == GENERATE_LINK_CHANNEL_USERNAME:
+        channel_username = text.strip()
+        
+        if not channel_username.startswith('@'):
+            await update.message.reply_text("❌ Please provide a valid channel username starting with @. Try again:")
+            return
+            
+        # Clear state
+        if user_id in user_states:
+            del user_states[user_id]
+        
+        # Generate the link
+        link_id = generate_link_id(channel_username, user_id)
+        bot_username = context.bot.username
+        deep_link = f"https://t.me/{bot_username}?start={link_id}"
+        
+        await update.message.reply_text(
+            f"🔗 **LINK GENERATED** 🔗\n\n"
+            f"**Channel:** {channel_username}\n"
+            f"**Expires in:** {LINK_EXPIRY_MINUTES} minutes\n\n"
+            f"**Direct Link:**\n`{deep_link}`\n\n"
+            f"Share this link with users!",
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK TO MENU", callback_data="admin_back")]])
+        )
+        return
+    # =========================================================
 
 # Error handler
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
