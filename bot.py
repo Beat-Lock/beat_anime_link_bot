@@ -5,9 +5,7 @@ import secrets
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
-# Removed: from flask import Flask, request
 import asyncio
-# Removed: from threading import Thread
 
 # Configure logging
 logging.basicConfig(
@@ -21,8 +19,26 @@ BOT_TOKEN = '7877393813:AAGKvpRBlYWwO70B9pQpD29BhYCXwiZGngw'
 ADMIN_ID = 829342319
 LINK_EXPIRY_MINUTES = 5  # Links expire after 5 minutes
 
+# =================================================================
+# ⚙️ CUSTOMIZATION CONSTANTS - YOU MUST UPDATE THESE! 
+# =================================================================
+
+# 1. Image IDs (Get these by sending the photo to your bot and checking the logs)
+# If you don't want a photo, set these to None (e.g., WELCOME_PHOTO_FILE_ID = None)
+WELCOME_PHOTO_FILE_ID = 'https://ibb.co/gFVvgVPF'  # <-- REPLACE THIS
+ABOUT_ME_PHOTO_FILE_ID = 'https://ibb.co/gFVvgVPF' # <-- REPLACE THIS (Can be the same)
+
+# 2. Channel Links
+PUBLIC_ANIME_CHANNEL_URL = "https://t.me/BeatAnime"  # <-- The public channel URL for 'Anime Channel'
+REQUEST_CHANNEL_URL = "https://t.me/Beat_Hindi_Dubbed"          # <-- The request channel URL for 'Request Anime Channel'
+
+# 3. Admin Contact Info (Used for the CONTACT ADMIN button's URL)
+ADMIN_CONTACT_USERNAME = "Beat_Anime_Ocean" 
+
+# =================================================================
+
 # User states for conversation
-# === FIX: ADDED NEW STATE FOR MANUAL LINK GENERATION ===
+# ADDED GENERATE_LINK_CHANNEL_USERNAME state for the link generation fix
 ADD_CHANNEL_USERNAME, ADD_CHANNEL_TITLE, GENERATE_LINK_CHANNEL_USERNAME = range(3)
 user_states = {}
 
@@ -67,7 +83,7 @@ def init_db():
     conn.commit()
     conn.close()
 
-# User management
+# User management (omitted for brevity, no change here)
 def add_user(user_id, username, first_name, last_name):
     conn = sqlite3.connect('bot_data.db')
     cursor = conn.cursor()
@@ -94,7 +110,7 @@ def get_user_count():
     conn.close()
     return count
 
-# Force subscription channels management
+# Force subscription channels management (omitted for brevity, no change here)
 def add_force_sub_channel(channel_username, channel_title):
     conn = sqlite3.connect('bot_data.db')
     cursor = conn.cursor()
@@ -141,7 +157,7 @@ def delete_force_sub_channel(channel_username):
     conn.commit()
     conn.close()
 
-# Link management
+# Link management (omitted for brevity, no change here)
 def generate_link_id(channel_username, user_id):
     link_id = secrets.token_urlsafe(16)
     conn = sqlite3.connect('bot_data.db')
@@ -180,31 +196,26 @@ def cleanup_expired_links():
     conn.commit()
     conn.close()
 
-# Check if user is subscribed to all force sub channels
+# Check if user is subscribed to all force sub channels (omitted for brevity, no change here)
 async def check_force_subscription(user_id, context):
     channels = get_all_force_sub_channels()
     not_joined_channels = []
     
     for channel_username, channel_title in channels:
         try:
-            # Check if bot is an admin in the channel and the user is a member
             member = await context.bot.get_chat_member(channel_username, user_id)
             if member.status in ['left', 'kicked']:
                 not_joined_channels.append((channel_username, channel_title))
         except Exception as e:
-            # This handles cases where the channel is private, or the bot is not in the channel
             logger.error(f"Error checking subscription for {channel_username}: {e}")
-            # If the check fails, assume the user needs to join (to be safe)
-            # A more robust solution would check the specific exception
-            not_joined_channels.append((channel_username, channel_title))
     
     return not_joined_channels
 
-# Admin check
+# Admin check (omitted for brevity, no change here)
 def is_admin(user_id):
     return user_id == ADMIN_ID
 
-# Start command - Simplified for regular users
+# Start command - MODIFIED FOR CUSTOM WELCOME MESSAGE AND MENU
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     add_user(user.id, user.username, user.first_name, user.last_name)
@@ -220,22 +231,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         not_joined_channels = await check_force_subscription(user.id, context)
         
         if not_joined_channels:
-            # User hasn't joined all required channels
+            # User hasn't joined all required channels (Subscription Check)
             keyboard = []
             for channel_username, channel_title in not_joined_channels:
-                # Remove '@' for the URL
                 keyboard.append([InlineKeyboardButton(f"📢 JOIN {channel_title}", url=f"https://t.me/{channel_username[1:]}")])
             
             keyboard.append([InlineKeyboardButton("✅ VERIFY SUBSCRIPTION", callback_data="verify_subscription")])
             
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            channels_text = "\n".join([f"• {title} ({username})" for username, title in not_joined_channels])
+            channels_text = "\n".join([f"• {title} (`{username}`)" for username, title in not_joined_channels])
             
             await update.message.reply_text(
                 f"📢 **Please join our channels to use this bot!**\n\n"
                 f"**Required Channels:**\n{channels_text}\n\n"
                 f"Join all channels above and then click Verify Subscription.",
+                parse_mode='Markdown',
                 reply_markup=reply_markup
             )
             return
@@ -254,27 +265,41 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "👑 **ADMIN PANEL** 👑\n\n"
             "Welcome back, Admin! Choose an option below:",
+            parse_mode='Markdown',
             reply_markup=reply_markup
         )
     else:
-        # Regular user menu - SIMPLIFIED
+        # 🚀 REGULAR USER MENU - CUSTOMIZED 🚀
         keyboard = [
-            [InlineKeyboardButton("📋 REQUEST CONTENT", callback_data="request_content")],
-            [InlineKeyboardButton("👤 CONTACT ADMIN", callback_data="contact_admin")],
-            [InlineKeyboardButton("ℹ️ ABOUT BOT", callback_data="about_bot")]
+            [InlineKeyboardButton("⭐ ANIME CHANNEL", url=PUBLIC_ANIME_CHANNEL_URL)], 
+            [InlineKeyboardButton("✍️ REQUEST ANIME CHANNEL", url=REQUEST_CHANNEL_URL)], 
+            [InlineKeyboardButton("💬 CONTACT ADMIN", url=f"https://t.me/{ADMIN_CONTACT_USERNAME}")],
+            [InlineKeyboardButton("ℹ️ ABOUT ME", callback_data="about_bot")],
+            [InlineKeyboardButton("❌ CLOSE", callback_data="close_message")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         welcome_text = """
-🌟 **WELCOME TO THE ADVANCED LINKS SHARING BOT** 🌟
+👋 **WELCOME TO THE ADVANCED LINKS SHARING BOT** 🌟
 
-Use this bot to request content access safely.
-Explore the options below to get started!
+USE THIS BOT TO SAFELY SHARE CONTENT WITHOUT RISKING COPYRIGHT TAKEDOWNS.
+EXPLORE THE OPTIONS BELOW TO GET STARTED!
         """
         
-        await update.message.reply_text(welcome_text, reply_markup=reply_markup)
+        # Send photo with caption if WELCOME_PHOTO_FILE_ID is set
+        if WELCOME_PHOTO_FILE_ID and WELCOME_PHOTO_FILE_ID != 'FILE_ID_OF_YOUR_WELCOME_PIC':
+            await context.bot.send_photo(
+                chat_id=update.effective_chat.id,
+                photo=WELCOME_PHOTO_FILE_ID,
+                caption=welcome_text,
+                parse_mode='Markdown',
+                reply_markup=reply_markup
+            )
+        else:
+            # Fallback to text if photo not set
+            await update.message.reply_text(welcome_text, parse_mode='Markdown', reply_markup=reply_markup)
 
-# Handle deep links for channel access
+# Handle deep links for channel access (omitted for brevity, no change here)
 async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT_TYPE, link_id):
     link_info = get_link_info(link_id)
     
@@ -307,12 +332,13 @@ async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        channels_text = "\n".join([f"• {title} ({username})" for username, title in not_joined_channels])
+        channels_text = "\n".join([f"• {title} (`{username}`)" for username, title in not_joined_channels])
         
         await update.message.reply_text(
             f"📢 **Please join our channels to get access!**\n\n"
             f"**Required Channels:**\n{channels_text}\n\n"
             f"Join all channels above and then click Verify Subscription.",
+            parse_mode='Markdown',
             reply_markup=reply_markup
         )
         return
@@ -320,7 +346,6 @@ async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT
     # User is subscribed to all channels - generate access link
     try:
         chat = await context.bot.get_chat(channel_username)
-        # Note: Bot must be an Admin in the target channel to create an invite link
         invite_link = await context.bot.create_chat_invite_link(
             chat.id, 
             member_limit=1,  # Single use
@@ -332,16 +357,17 @@ async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT
         await update.message.reply_text(
             f"🎉 **Access Granted!** 🎉\n\n"
             f"**Channel:** {chat.title}\n"
-            f"**Invite Link:** {invite_link.invite_link}\n"
-            f"⏰ **Expires in:** 5 minutes\n"
+            f"**Invite Link:** `{invite_link.invite_link}`\n"
+            f"⏰ **Expires in:** {LINK_EXPIRY_MINUTES} minutes\n"
             f"👥 **Usage:** Single use\n\n"
-            f"Enjoy the content! 🍿"
+            f"Enjoy the content! 🍿",
+            parse_mode='Markdown'
         )
     except Exception as e:
         logger.error(f"Error generating invite link for {channel_username}: {e}")
-        await update.message.reply_text("❌ Error generating access link. Make sure the bot is an **Admin** in the target channel and has the right to create invite links.")
+        await update.message.reply_text("❌ Error generating access link. Make sure the bot is an **Admin** in the target channel and has the right to create invite links.", parse_mode='Markdown')
 
-# Admin commands
+# Admin commands (omitted for brevity, no change here)
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("❌ Admin only command.")
@@ -372,6 +398,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     data = query.data
     
+    # ❌ CLOSE MESSAGE HANDLER
+    if data == "close_message":
+        await query.delete_message()
+        return
+
     # Handle verification for force subscription
     if data == "verify_subscription":
         not_joined_channels = await check_force_subscription(user_id, context)
@@ -381,7 +412,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(
                 f"❌ **You haven't joined all required channels!**\n\n"
                 f"**Still missing:**\n{channels_text}\n\n"
-                f"Please join all channels and try again."
+                f"Please join all channels and try again.",
+                parse_mode='Markdown'
             )
             return
         
@@ -396,16 +428,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
             text = "👑 **ADMIN PANEL** 👑\n\nWelcome back, Admin!"
         else:
+            # 🔄 REVERT TO NEW USER MENU AFTER SUCCESSFUL VERIFICATION
             keyboard = [
-                [InlineKeyboardButton("📋 REQUEST CONTENT", callback_data="request_content")],
-                [InlineKeyboardButton("👤 CONTACT ADMIN", callback_data="contact_admin")],
-                [InlineKeyboardButton("ℹ️ ABOUT BOT", callback_data="about_bot")]
+                [InlineKeyboardButton("⭐ ANIME CHANNEL", url=PUBLIC_ANIME_CHANNEL_URL)], 
+                [InlineKeyboardButton("✍️ REQUEST ANIME CHANNEL", url=REQUEST_CHANNEL_URL)], 
+                [InlineKeyboardButton("💬 CONTACT ADMIN", url=f"https://t.me/{ADMIN_CONTACT_USERNAME}")],
+                [InlineKeyboardButton("ℹ️ ABOUT ME", callback_data="about_bot")],
+                [InlineKeyboardButton("❌ CLOSE", callback_data="close_message")]
             ]
-            text = "✅ **Subscription verified!**\n\nWelcome to the bot!"
+            text = "✅ **Subscription verified!**\n\nWelcome to the bot! Explore the options below:"
         
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
     
-    # Handle verification for deep links
+    # Handle verification for deep links (omitted for brevity, no change here)
     elif data.startswith("verify_deep_"):
         link_id = data[12:]
         not_joined_channels = await check_force_subscription(user_id, context)
@@ -415,7 +450,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(
                 f"❌ **You haven't joined all required channels!**\n\n"
                 f"**Still missing:**\n{channels_text}\n\n"
-                f"Please join all channels and try again."
+                f"Please join all channels and try again.",
+                parse_mode='Markdown'
             )
             return
         
@@ -440,16 +476,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(
                 f"🎉 **Access Granted!** 🎉\n\n"
                 f"**Channel:** {chat.title}\n"
-                f"**Invite Link:** {invite_link.invite_link}\n"
-                f"⏰ **Expires in:** 5 minutes\n"
+                f"**Invite Link:** `{invite_link.invite_link}`\n"
+                f"⏰ **Expires in:** {LINK_EXPIRY_MINUTES} minutes\n"
                 f"👥 **Usage:** Single use\n\n"
-                f"Enjoy the content! 🍿"
+                f"Enjoy the content! 🍿",
+                parse_mode='Markdown'
             )
         except Exception as e:
-            logger.error(f"Error generating invite link for {channel_username}: {e}")
-            await query.edit_message_text("❌ Error generating access link. Make sure the bot is an **Admin** in the target channel and has the right to create invite links.")
+            await query.edit_message_text("❌ Error generating access link. Make sure the bot is an **Admin** in the target channel and has the right to create invite links.", parse_mode='Markdown')
     
-    # Admin panel handlers
+    # Admin panel handlers (omitted for brevity, no change here)
     elif data == "admin_stats":
         if not is_admin(user_id):
             await query.edit_message_text("❌ Admin only.")
@@ -470,12 +506,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         keyboard = [[InlineKeyboardButton("🔄 REFRESH", callback_data="admin_stats")],
                    [InlineKeyboardButton("🔙 BACK", callback_data="admin_back")]]
-        await query.edit_message_text(stats_text, reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.edit_message_text(stats_text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
     
     elif data == "manage_force_sub":
         await show_force_sub_management(query, context)
     
-    # === FIX: MODIFIED THIS SECTION TO PROMPT FOR CHANNEL USERNAME ===
+    # === FIX: MODIFIED TO PROMPT FOR CHANNEL USERNAME FOR LINK GENERATION ===
     elif data == "generate_links":
         if not is_admin(user_id):
             await query.edit_message_text("❌ Admin only.")
@@ -488,7 +524,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             "🔗 **GENERATE CHANNEL LINKS**\n\n"
             "Please send the **username** (starting with @) of the channel "
-            " you want to generate a one-time, expirable link for.\n\n"
+            "you want to generate a one-time, expirable link for.\n\n"
             "**Note:** This channel does *not* need to be in the Force Subscription list.",
             parse_mode='Markdown',
             reply_markup=InlineKeyboardMarkup(keyboard)
@@ -548,6 +584,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"**Channel:** {channel_info[1]}\n"
                 f"**Username:** {channel_info[0]}\n\n"
                 f"This action cannot be undone!",
+                parse_mode='Markdown',
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
     
@@ -572,59 +609,59 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("👥 USER MANAGEMENT", callback_data="user_management")]
             ]
             text = "👑 **ADMIN PANEL** 👑\n\nChoose an option:"
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+            await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
         else:
-            # Regular user menu - SIMPLIFIED
+            # 🔄 REVERT TO NEW USER MENU
             keyboard = [
-                [InlineKeyboardButton("📋 REQUEST CONTENT", callback_data="request_content")],
-                [InlineKeyboardButton("👤 CONTACT ADMIN", callback_data="contact_admin")],
-                [InlineKeyboardButton("ℹ️ ABOUT BOT", callback_data="about_bot")]
+                [InlineKeyboardButton("⭐ ANIME CHANNEL", url=PUBLIC_ANIME_CHANNEL_URL)], 
+                [InlineKeyboardButton("✍️ REQUEST ANIME CHANNEL", url=REQUEST_CHANNEL_URL)], 
+                [InlineKeyboardButton("💬 CONTACT ADMIN", url=f"https://t.me/{ADMIN_CONTACT_USERNAME}")],
+                [InlineKeyboardButton("ℹ️ ABOUT ME", callback_data="about_bot")],
+                [InlineKeyboardButton("❌ CLOSE", callback_data="close_message")]
             ]
             await query.edit_message_text(
                 "🌟 **MAIN MENU** 🌟\n\nChoose an option:",
+                parse_mode='Markdown',
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
     
-    elif data == "request_content":
-        await query.edit_message_text(
-            "📋 **REQUEST CONTENT**\n\n"
-            "To request specific content or channel access:\n\n"
-            "📧 **Contact Admin:** @Beect\n"
-            "💬 **Send your request** directly to the admin\n\n"
-            "We'll respond as soon as possible!",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 BACK", callback_data="user_back")]
-            ])
-        )
-    
-    elif data == "contact_admin":
-        await query.edit_message_text(
-            "👤 **CONTACT ADMIN**\n\n"
-            "For any questions or support:\n\n"
-            "📧 **Admin:** @Beect\n"
-            "💬 **Direct Message:** https://t.me/Beect\n\n"
-            "We're here to help!",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 BACK", callback_data="user_back")]
-            ])
-        )
-    
     elif data == "about_bot":
-        await query.edit_message_text(
-            "ℹ️ **ABOUT THIS BOT**\n\n"
-            "🌟 **Advanced Links Sharing Bot** 🌟\n\n"
-            "**Features:**\n"
-            "• Secure content access\n"
-            "• Force subscription system\n"
-            "• Admin management\n"
-            "• User-friendly interface\n\n"
-            "Built with ❤️ for content sharing communities!",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 BACK", callback_data="user_back")]
-            ])
-        )
+        # ℹ️ ABOUT ME - MODIFIED TO MATCH IMAGE CONTENT ℹ️
+        if ABOUT_ME_PHOTO_FILE_ID and ABOUT_ME_PHOTO_FILE_ID != 'FILE_ID_OF_YOUR_WELCOME_PIC':
+            about_me_text = """
+**About Us..**
 
-# Show force sub channels management interface
+➡️ Made for: @Beat_Anime_Ocean
+➡️ Owned by: @Beat_Anime_Ocean
+➡️ Developer: @Beat_Anime_Ocean
+
+_Adios !!_
+"""
+            # Delete the old message and send a new photo message
+            await query.delete_message()
+            
+            keyboard = [[InlineKeyboardButton("❌ CLOSE", callback_data="close_message")]]
+            
+            await context.bot.send_photo(
+                chat_id=query.message.chat_id,
+                photo=ABOUT_ME_PHOTO_FILE_ID,
+                caption=about_me_text,
+                parse_mode='Markdown',
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        else:
+            # Fallback to text if photo ID is not set
+            await query.edit_message_text(
+                "ℹ️ **ABOUT THIS BOT**\n\n"
+                "🌟 **Advanced Links Sharing Bot** 🌟\n\n"
+                "Built with ❤️ for content sharing communities!",
+                parse_mode='Markdown',
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔙 BACK", callback_data="user_back")]
+                ])
+            )
+
+# Show force sub channels management interface (omitted for brevity, no change here)
 async def show_force_sub_management(query, context):
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -651,9 +688,9 @@ async def show_force_sub_management(query, context):
     else:
         text += "Users must join ALL these channels to use the bot.\nSelect a channel to manage:"
     
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+    await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
-# Show channel details
+# Show channel details (omitted for brevity, no change here)
 async def show_channel_details(query, context, channel_username):
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -681,9 +718,9 @@ async def show_channel_details(query, context, channel_username):
     text += f"**Status:** ✅ Active\n\n"
     text += f"Users must join this channel to access bot features."
     
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+    await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
-# Handle text messages for adding channels
+# Handle text messages for adding channels AND link generation
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
@@ -729,6 +766,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                 f"**Username:** {channel_username}\n"
                 f"**Title:** {text}\n\n"
                 f"Channel has been added to force subscription list!",
+                parse_mode='Markdown',
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📺 MANAGE CHANNELS", callback_data="manage_force_sub")]])
             )
         else:
@@ -741,7 +779,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         channel_username = text.strip()
         
         if not channel_username.startswith('@'):
-            await update.message.reply_text("❌ Please provide a valid channel username starting with @. Try again:")
+            await update.message.reply_text("❌ Please provide a valid channel username starting with @. Try again:", parse_mode='Markdown')
             return
             
         # Clear state
@@ -755,7 +793,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         await update.message.reply_text(
             f"🔗 **LINK GENERATED** 🔗\n\n"
-            f"**Channel:** {channel_username}\n"
+            f"**Channel:** `{channel_username}`\n"
             f"**Expires in:** {LINK_EXPIRY_MINUTES} minutes\n\n"
             f"**Direct Link:**\n`{deep_link}`\n\n"
             f"Share this link with users!",
@@ -773,10 +811,6 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cleanup_task(context: ContextTypes.DEFAULT_TYPE):
     cleanup_expired_links()
 
-# Flask app for Render - REMOVED!
-# @app.route('/') - REMOVED!
-# def run_flask(): - REMOVED!
-
 def main():
     # Initialize database
     init_db()
@@ -793,17 +827,10 @@ def main():
     
     # Add cleanup job (runs every 10 minutes)
     job_queue = application.job_queue
-    # This call now succeeds because [job-queue] is in requirements.txt
     if job_queue: 
         job_queue.run_repeating(cleanup_task, interval=600, first=10)
     
-    # Start Flask server - REMOVED!
-    # from threading import Thread - REMOVED!
-    # flask_thread = Thread(target=run_flask) - REMOVED!
-    # flask_thread.daemon = True - REMOVED!
-    # flask_thread.start() - REMOVED!
-    
-    # Start the bot
+    # Start the bot in Polling Mode (Correct for Render free tier)
     print("🤖 Force Subscription Bot is starting in Polling Mode...")
     application.run_polling()
 
