@@ -3,11 +3,11 @@ import logging
 import sqlite3
 import secrets
 from datetime import datetime, timedelta
-# The flask import below is REMOVED
-# from flask import Flask, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
+# Removed: from flask import Flask, request
 import asyncio
+# Removed: from threading import Thread
 
 # Configure logging
 logging.basicConfig(
@@ -739,17 +739,17 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Cleanup task
 async def cleanup_task(context: ContextTypes.DEFAULT_TYPE):
-    # This will run periodically via the job_queue
     cleanup_expired_links()
 
-# All Flask related code (app, home, health, run_flask) has been REMOVED.
+# Flask app for Render - REMOVED!
+# @app.route('/') - REMOVED!
+# def run_flask(): - REMOVED!
 
 def main():
     # Initialize database
     init_db()
     
     # Create Application
-    # Note: Application.builder().build() automatically sets up the JobQueue if installed
     application = Application.builder().token(BOT_TOKEN).build()
     
     # Add handlers
@@ -761,12 +761,17 @@ def main():
     
     # Add cleanup job (runs every 10 minutes)
     job_queue = application.job_queue
-    # Now that job-queue is installed, this should work.
-    job_queue.run_repeating(cleanup_task, interval=600, first=10)
+    # This call now succeeds because [job-queue] is in requirements.txt
+    if job_queue: 
+        job_queue.run_repeating(cleanup_task, interval=600, first=10)
     
-    # The Flask server start thread logic has been REMOVED.
+    # Start Flask server - REMOVED!
+    # from threading import Thread - REMOVED!
+    # flask_thread = Thread(target=run_flask) - REMOVED!
+    # flask_thread.daemon = True - REMOVED!
+    # flask_thread.start() - REMOVED!
     
-    # Start the bot in polling mode - this is the single process Render expects
+    # Start the bot
     print("🤖 Force Subscription Bot is starting in Polling Mode...")
     application.run_polling()
 
