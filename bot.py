@@ -4,7 +4,7 @@ import sqlite3
 import secrets
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext, MessageHandler, filters
+from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext, MessageHandler, Filters
 from flask import Flask, request
 import threading
 
@@ -179,13 +179,13 @@ def cleanup_expired_links():
     conn.close()
 
 # Check if user is subscribed to all force sub channels
-async def check_force_subscription(user_id, context):
+def check_force_subscription(user_id, bot):
     channels = get_all_force_sub_channels()
     not_joined_channels = []
     
     for channel_username, channel_title in channels:
         try:
-            member = await context.bot.get_chat_member(channel_username, user_id)
+            member = bot.get_chat_member(chat_id=channel_username, user_id=user_id)
             if member.status in ['left', 'kicked']:
                 not_joined_channels.append((channel_username, channel_title))
         except Exception as e:
@@ -198,19 +198,19 @@ def is_admin(user_id):
     return user_id == ADMIN_ID
 
 # Start command - Simplified for regular users
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def start(update: Update, context: CallbackContext):
     user = update.effective_user
     add_user(user.id, user.username, user.first_name, user.last_name)
     
     # Check if it's a deep link for channel access
     if context.args and len(context.args) > 0:
         link_id = context.args[0]
-        await handle_channel_link_deep(update, context, link_id)
+        handle_channel_link_deep(update, context, link_id)
         return
     
     # Check force subscription for regular users
     if not is_admin(user.id):
-        not_joined_channels = await check_force_subscription(user.id, context)
+        not_joined_channels = check_force_subscription(user.id, context.bot)
         
         if not_joined_channels:
             # User hasn't joined all required channels
@@ -224,7 +224,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             channels_text = "\n".join([f"• {title} ({username})" for username, title in not_joined_channels])
             
-            await update.message.reply_text(
+            update.message.reply_text(
                 f"📢 **Please join our channels to use this bot!**\n\n"
                 f"**Required Channels:**\n{channels_text}\n\n"
                 f"Join all channels above and then click Verify Subscription.",
@@ -243,7 +243,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("👥 USER MANAGEMENT", callback_data="user_management")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(
+        update.message.reply_text(
             "👑 **ADMIN PANEL** 👑\n\n"
             "Welcome back, Admin! Choose an option below:",
             reply_markup=reply_markup
@@ -264,32 +264,32 @@ Use this bot to request content access safely.
 Explore the options below to get started!
         """
         
-        await update.message.reply_text(welcome_text, reply_markup=reply_markup)
+        update.message.reply_text(welcome_text, reply_markup=reply_markup)
 
 # Handle deep links for channel access
-async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT_TYPE, link_id):
+def handle_channel_link_deep(update: Update, context: CallbackContext, link_id):
     link_info = get_link_info(link_id)
     
     if not link_info:
-        await update.message.reply_text("❌ This link has expired or is invalid.")
+        update.message.reply_text("❌ This link has expired or is invalid.")
         return
     
     channel_username, creator_id, created_time, is_used = link_info
     
     if is_used:
-        await update.message.reply_text("❌ This link has already been used.")
+        update.message.reply_text("❌ This link has already been used.")
         return
     
     # Check if link is expired
     link_age = datetime.now() - datetime.fromisoformat(created_time)
     if link_age.total_seconds() > LINK_EXPIRY_MINUTES * 60:
-        await update.message.reply_text("❌ This link has expired.")
+        update.message.reply_text("❌ This link has expired.")
         return
     
     user = update.effective_user
     
     # Check force subscription first
-    not_joined_channels = await check_force_subscription(user.id, context)
+    not_joined_channels = check_force_subscription(user.id, context.bot)
     if not_joined_channels:
         keyboard = []
         for channel_username, channel_title in not_joined_channels:
@@ -301,7 +301,7 @@ async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT
         
         channels_text = "\n".join([f"• {title} ({username})" for username, title in not_joined_channels])
         
-        await update.message.reply_text(
+        update.message.reply_text(
             f"📢 **Please join our channels to get access!**\n\n"
             f"**Required Channels:**\n{channels_text}\n\n"
             f"Join all channels above and then click Verify Subscription.",
@@ -311,16 +311,16 @@ async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT
     
     # User is subscribed to all channels - generate access link
     try:
-        chat = await context.bot.get_chat(channel_username)
-        invite_link = await context.bot.create_chat_invite_link(
-            chat.id, 
+        chat = context.bot.get_chat(chat_id=channel_username)
+        invite_link = context.bot.create_chat_invite_link(
+            chat_id=chat.id,
             member_limit=1,  # Single use
-            expire_date=datetime.now().timestamp() + 300  # 5 minutes
+            expire_date=int(datetime.now().timestamp() + 300)  # 5 minutes
         )
         
         mark_link_used(link_id)
         
-        await update.message.reply_text(
+        update.message.reply_text(
             f"🎉 **Access Granted!** 🎉\n\n"
             f"**Channel:** {chat.title}\n"
             f"**Invite Link:** {invite_link.invite_link}\n"
@@ -329,16 +329,16 @@ async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT
             f"Enjoy the content! 🍿"
         )
     except Exception as e:
-        await update.message.reply_text("❌ Error generating access link.")
+        update.message.reply_text("❌ Error generating access link.")
 
 # Admin commands
-async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def broadcast(update: Update, context: CallbackContext):
     if not is_admin(update.effective_user.id):
-        await update.message.reply_text("❌ Admin only command.")
+        update.message.reply_text("❌ Admin only command.")
         return
     
     if not context.args:
-        await update.message.reply_text("Usage: /broadcast <message>")
+        update.message.reply_text("Usage: /broadcast <message>")
         return
     
     message = ' '.join(context.args)
@@ -347,28 +347,27 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     for user in users:
         try:
-            await context.bot.send_message(chat_id=user[0], text=message)
+            context.bot.send_message(chat_id=user[0], text=message)
             success_count += 1
         except Exception:
             pass
-        await asyncio.sleep(0.1)
     
-    await update.message.reply_text(f"📊 Broadcast sent to {success_count}/{len(users)} users.")
+    update.message.reply_text(f"📊 Broadcast sent to {success_count}/{len(users)} users.")
 
 # Button handlers
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def button_handler(update: Update, context: CallbackContext):
     query = update.callback_query
-    await query.answer()
+    query.answer()
     user_id = query.from_user.id
     data = query.data
     
     # Handle verification for force subscription
     if data == "verify_subscription":
-        not_joined_channels = await check_force_subscription(user_id, context)
+        not_joined_channels = check_force_subscription(user_id, context.bot)
         
         if not_joined_channels:
             channels_text = "\n".join([f"• {title}" for _, title in not_joined_channels])
-            await query.edit_message_text(
+            query.edit_message_text(
                 f"❌ **You haven't joined all required channels!**\n\n"
                 f"**Still missing:**\n{channels_text}\n\n"
                 f"Please join all channels and try again."
@@ -393,16 +392,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
             text = "✅ **Subscription verified!**\n\nWelcome to the bot!"
         
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+        query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
     
     # Handle verification for deep links
     elif data.startswith("verify_deep_"):
         link_id = data[12:]
-        not_joined_channels = await check_force_subscription(user_id, context)
+        not_joined_channels = check_force_subscription(user_id, context.bot)
         
         if not_joined_channels:
             channels_text = "\n".join([f"• {title}" for _, title in not_joined_channels])
-            await query.edit_message_text(
+            query.edit_message_text(
                 f"❌ **You haven't joined all required channels!**\n\n"
                 f"**Still missing:**\n{channels_text}\n\n"
                 f"Please join all channels and try again."
@@ -412,22 +411,22 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # User joined all channels - process the deep link
         link_info = get_link_info(link_id)
         if not link_info:
-            await query.edit_message_text("❌ Link expired or invalid.")
+            query.edit_message_text("❌ Link expired or invalid.")
             return
         
         channel_username = link_info[0]
         
         try:
-            chat = await context.bot.get_chat(channel_username)
-            invite_link = await context.bot.create_chat_invite_link(
-                chat.id, 
+            chat = context.bot.get_chat(chat_id=channel_username)
+            invite_link = context.bot.create_chat_invite_link(
+                chat_id=chat.id,
                 member_limit=1,
-                expire_date=datetime.now().timestamp() + 300
+                expire_date=int(datetime.now().timestamp() + 300)
             )
             
             mark_link_used(link_id)
             
-            await query.edit_message_text(
+            query.edit_message_text(
                 f"🎉 **Access Granted!** 🎉\n\n"
                 f"**Channel:** {chat.title}\n"
                 f"**Invite Link:** {invite_link.invite_link}\n"
@@ -436,12 +435,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"Enjoy the content! 🍿"
             )
         except Exception as e:
-            await query.edit_message_text("❌ Error generating access link.")
+            query.edit_message_text("❌ Error generating access link.")
     
     # Admin panel handlers
     elif data == "admin_stats":
         if not is_admin(user_id):
-            await query.edit_message_text("❌ Admin only.")
+            query.edit_message_text("❌ Admin only.")
             return
         
         user_count = get_user_count()
@@ -459,14 +458,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         keyboard = [[InlineKeyboardButton("🔄 REFRESH", callback_data="admin_stats")],
                    [InlineKeyboardButton("🔙 BACK", callback_data="admin_back")]]
-        await query.edit_message_text(stats_text, reply_markup=InlineKeyboardMarkup(keyboard))
+        query.edit_message_text(stats_text, reply_markup=InlineKeyboardMarkup(keyboard))
     
     elif data == "manage_force_sub":
-        await show_force_sub_management(query, context)
+        show_force_sub_management(query, context)
     
     elif data == "generate_links":
         if not is_admin(user_id):
-            await query.edit_message_text("❌ Admin only.")
+            query.edit_message_text("❌ Admin only.")
             return
         
         channels = get_all_force_sub_channels()
@@ -474,7 +473,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not channels:
             keyboard = [[InlineKeyboardButton("📺 ADD CHANNEL", callback_data="add_channel_start")],
                        [InlineKeyboardButton("🔙 BACK", callback_data="admin_back")]]
-            await query.edit_message_text(
+            query.edit_message_text(
                 "❌ No force sub channels found!\n\nPlease add channels first.",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
@@ -486,7 +485,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         keyboard.append([InlineKeyboardButton("🔙 BACK", callback_data="admin_back")])
         
-        await query.edit_message_text(
+        query.edit_message_text(
             "🔗 **GENERATE CHANNEL LINKS**\n\n"
             "Select a channel to generate expirable links:",
             reply_markup=InlineKeyboardMarkup(keyboard)
@@ -494,7 +493,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif data.startswith("genlink_"):
         if not is_admin(user_id):
-            await query.edit_message_text("❌ Admin only.")
+            query.edit_message_text("❌ Admin only.")
             return
         
         channel_username = data[8:]
@@ -503,7 +502,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bot_username = context.bot.username
         deep_link = f"https://t.me/{bot_username}?start={link_id}"
         
-        await query.edit_message_text(
+        query.edit_message_text(
             f"🔗 **LINK GENERATED** 🔗\n\n"
             f"**Channel:** {channel_username}\n"
             f"**Expires in:** {LINK_EXPIRY_MINUTES} minutes\n\n"
@@ -514,11 +513,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif data == "add_channel_start":
         if not is_admin(user_id):
-            await query.edit_message_text("❌ Admin only.")
+            query.edit_message_text("❌ Admin only.")
             return
         
         user_states[user_id] = ADD_CHANNEL_USERNAME
-        await query.edit_message_text(
+        query.edit_message_text(
             "📺 **ADD FORCE SUBSCRIPTION CHANNEL**\n\n"
             "Please send me the channel username (starting with @):\n\n"
             "Example: `@Beat_Anime_Ocean`",
@@ -527,7 +526,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     
     elif data.startswith("channel_"):
-        await show_channel_details(query, context, data[8:])
+        show_channel_details(query, context, data[8:])
     
     elif data.startswith("delete_"):
         channel_username = data[7:]
@@ -538,7 +537,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("✅ YES, DELETE", callback_data=f"confirm_delete_{channel_username}")],
                 [InlineKeyboardButton("❌ NO, CANCEL", callback_data=f"channel_{channel_username}")]
             ]
-            await query.edit_message_text(
+            query.edit_message_text(
                 f"🗑️ **CONFIRM DELETION**\n\n"
                 f"Are you sure you want to delete this force sub channel?\n\n"
                 f"**Channel:** {channel_info[1]}\n"
@@ -551,7 +550,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         channel_username = data[15:]
         delete_force_sub_channel(channel_username)
         
-        await query.edit_message_text(
+        query.edit_message_text(
             f"✅ **CHANNEL DELETED**\n\n"
             f"Force sub channel `{channel_username}` has been deleted successfully.",
             parse_mode='Markdown',
@@ -568,7 +567,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("👥 USER MANAGEMENT", callback_data="user_management")]
             ]
             text = "👑 **ADMIN PANEL** 👑\n\nChoose an option:"
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+            query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
         else:
             # Regular user menu - SIMPLIFIED
             keyboard = [
@@ -576,13 +575,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("👤 CONTACT ADMIN", callback_data="contact_admin")],
                 [InlineKeyboardButton("ℹ️ ABOUT BOT", callback_data="about_bot")]
             ]
-            await query.edit_message_text(
+            query.edit_message_text(
                 "🌟 **MAIN MENU** 🌟\n\nChoose an option:",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
     
     elif data == "request_content":
-        await query.edit_message_text(
+        query.edit_message_text(
             "📋 **REQUEST CONTENT**\n\n"
             "To request specific content or channel access:\n\n"
             "📧 **Contact Admin:** @Beect\n"
@@ -594,7 +593,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     
     elif data == "contact_admin":
-        await query.edit_message_text(
+        query.edit_message_text(
             "👤 **CONTACT ADMIN**\n\n"
             "For any questions or support:\n\n"
             "📧 **Admin:** @Beect\n"
@@ -606,7 +605,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     
     elif data == "about_bot":
-        await query.edit_message_text(
+        query.edit_message_text(
             "ℹ️ **ABOUT THIS BOT**\n\n"
             "🌟 **Advanced Links Sharing Bot** 🌟\n\n"
             "**Features:**\n"
@@ -621,10 +620,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 # Show force sub channels management interface
-async def show_force_sub_management(query, context):
+def show_force_sub_management(query, context):
     user_id = query.from_user.id
     if not is_admin(user_id):
-        await query.edit_message_text("❌ Admin only.")
+        query.edit_message_text("❌ Admin only.")
         return
     
     channels = get_all_force_sub_channels()
@@ -647,19 +646,19 @@ async def show_force_sub_management(query, context):
     else:
         text += "Users must join ALL these channels to use the bot.\nSelect a channel to manage:"
     
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+    query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 # Show channel details
-async def show_channel_details(query, context, channel_username):
+def show_channel_details(query, context, channel_username):
     user_id = query.from_user.id
     if not is_admin(user_id):
-        await query.edit_message_text("❌ Admin only.")
+        query.edit_message_text("❌ Admin only.")
         return
     
     channel_info = get_force_sub_channel_info(channel_username)
     
     if not channel_info:
-        await query.edit_message_text("❌ Channel not found.")
+        query.edit_message_text("❌ Channel not found.")
         return
     
     channel_username, channel_title = channel_info
@@ -677,10 +676,10 @@ async def show_channel_details(query, context, channel_username):
     text += f"**Status:** ✅ Active\n\n"
     text += f"Users must join this channel to access bot features."
     
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+    query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 # Handle text messages for adding channels
-async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def handle_text_message(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     
     if user_id not in user_states:
@@ -691,7 +690,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     if state == ADD_CHANNEL_USERNAME:
         if not text.startswith('@'):
-            await update.message.reply_text(
+            update.message.reply_text(
                 "❌ Please provide a valid channel username starting with @\n\n"
                 "Example: `@Beat_Anime_Ocean`\n\n"
                 "Try again:",
@@ -702,7 +701,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data['channel_username'] = text
         user_states[user_id] = ADD_CHANNEL_TITLE
         
-        await update.message.reply_text(
+        update.message.reply_text(
             "📝 **STEP 2: Channel Title**\n\n"
             "Now please send me the display title for this channel:\n\n"
             "Example: `Anime Ocean Channel`",
@@ -720,7 +719,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             if 'channel_username' in context.user_data:
                 del context.user_data['channel_username']
             
-            await update.message.reply_text(
+            update.message.reply_text(
                 f"✅ **FORCE SUB CHANNEL ADDED SUCCESSFULLY!**\n\n"
                 f"**Username:** {channel_username}\n"
                 f"**Title:** {text}\n\n"
@@ -728,16 +727,16 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📺 MANAGE CHANNELS", callback_data="manage_force_sub")]])
             )
         else:
-            await update.message.reply_text(
+            update.message.reply_text(
                 "❌ Error adding channel. It might already exist or there was a database error."
             )
 
 # Error handler
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def error_handler(update: Update, context: CallbackContext):
     logger.error(f"Exception while handling an update: {context.error}")
 
 # Cleanup task
-async def cleanup_task(context: ContextTypes.DEFAULT_TYPE):
+def cleanup_task(context: CallbackContext):
     cleanup_expired_links()
 
 # Flask app for Render
@@ -768,7 +767,7 @@ def main():
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("broadcast", broadcast))
     dp.add_handler(CallbackQueryHandler(button_handler))
-    dp.add_handler(MessageHandler(filters.Filters.text & ~filters.Filters.command, handle_text_message))
+    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_text_message))
     
     # Add error handler
     dp.add_error_handler(error_handler)
