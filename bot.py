@@ -758,30 +758,30 @@ def main():
     # Initialize database
     init_db()
     
-    # Create Application
-    application = Application.builder().token(BOT_TOKEN).build()
+    # Create Updater
+    updater = Updater(BOT_TOKEN, use_context=True)
+    
+    # Get dispatcher
+    dp = updater.dispatcher
     
     # Add handlers
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("broadcast", broadcast))
-    application.add_handler(CallbackQueryHandler(button_handler))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
-    application.add_error_handler(error_handler)
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CommandHandler("broadcast", broadcast))
+    dp.add_handler(CallbackQueryHandler(button_handler))
+    dp.add_handler(MessageHandler(filters.Filters.text & ~filters.Filters.command, handle_text_message))
     
-    # Add cleanup job (runs every 10 minutes)
-    job_queue = application.job_queue
-    job_queue.run_repeating(cleanup_task, interval=600, first=10)
+    # Add error handler
+    dp.add_error_handler(error_handler)
     
-    # Start Flask server
-    from threading import Thread
-    flask_thread = Thread(target=run_flask)
+    # Start Flask server in a separate thread
+    flask_thread = threading.Thread(target=run_flask)
     flask_thread.daemon = True
     flask_thread.start()
     
     # Start the bot
     print("🤖 Force Subscription Bot is starting...")
-    application.run_polling()
+    updater.start_polling()
+    updater.idle()
 
 if __name__ == '__main__':
-
     main()
