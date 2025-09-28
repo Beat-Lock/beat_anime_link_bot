@@ -1,12 +1,13 @@
 services:
   - type: web
-    name: anime-links-bot
+    name: telegram-bot
     env: python
-    plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: python bot.py
+    startCommand: gunicorn bot:app --bind 0.0.0.0:$PORT
     envVars:
       - key: BOT_TOKEN
-        value: '7877393813:AAGKvpRBlYWwO70B9pQpD29BhYCXwiZGngw'
+        sync: false
       - key: ADMIN_ID
-        value: '829342319'
+        sync: false
+      - key: RENDER_EXTERNAL_URL
+        value: https://beat-anime-link-bot.onrender.com   # Replace after first deploy
