@@ -4,9 +4,9 @@ import sqlite3
 import secrets
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext, MessageHandler, filters
 from flask import Flask, request
-import asyncio
+import threading
 
 # Configure logging
 logging.basicConfig(
@@ -16,8 +16,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Bot configuration
-BOT_TOKEN = '7877393813:AAGKvpRBlYWwO70B9pQpD29BhYCXwiZGngw'
-ADMIN_ID = 829342319
+BOT_TOKEN = os.environ.get('BOT_TOKEN', '7877393813:AAGKvpRBlYWwO70B9pQpD29BhYCXwiZGngw')
+ADMIN_ID = int(os.environ.get('ADMIN_ID', '829342319'))
 LINK_EXPIRY_MINUTES = 5  # Links expire after 5 minutes
 
 # User states for conversation
@@ -783,4 +783,5 @@ def main():
     application.run_polling()
 
 if __name__ == '__main__':
+
     main()
