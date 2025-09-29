@@ -422,9 +422,9 @@ async def send_user_management(query, context, offset=0):
     safe_start = escape_markdown_v2(str(offset + 1))
     safe_end = escape_markdown_v2(str(min(offset + 10, user_count)))
     
-    # Build message with proper escaping
+    # Build message with ALL colons properly escaped
     stats_text = (
-        r"👥 **USER MANAGEMENT** 👥" + "\n\n" +
+        "👥 **USER MANAGEMENT** 👥\n\n" +
         f"**Total Users\\:** {safe_user_count}\n" +
         f"**Showing\\:** {safe_start}\\-{safe_end} of {safe_user_count}\n\n" +
         user_list_text
