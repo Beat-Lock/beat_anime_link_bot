@@ -56,7 +56,6 @@ def escape_markdown_v2(text):
 
 # --- CORRECTED DATABASE INITIALIZATION ---
 # --- TEMPORARY CRITICAL FIX: Delete the old DB file on startup ---
-def init_db():
     # TEMPORARY FIX: Check if the file exists and delete it to force a clean recreation
  # --- REVERTED DATABASE INITIALIZATION (FINAL CODE) ---
 def init_db():
@@ -1127,6 +1126,7 @@ if __name__ == '__main__':
         os.environ['PORT'] = str(8080)
     
     main()
+
 
 
 
