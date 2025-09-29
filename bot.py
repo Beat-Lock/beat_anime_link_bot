@@ -861,7 +861,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     
-        elif state == GENERATE_LINK_CHANNEL_USERNAME:
+    elif state == GENERATE_LINK_CHANNEL_USERNAME:
             # ... (other code omitted for brevity)
             
             link_id = generate_link_id(channel_username, user_id)
@@ -1166,5 +1166,6 @@ if __name__ == '__main__':
         os.environ['PORT'] = str(8080)
     
     main()
+
 
 
