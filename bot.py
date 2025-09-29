@@ -275,16 +275,14 @@ async def send_admin_stats(query, context):
     safe_expiry = escape_markdown_v2(str(LINK_EXPIRY_MINUTES))
     safe_datetime = escape_markdown_v2(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
     
-    # Using raw f-string to ensure correct MarkdownV2 escaping
-    stats_text = rf"""
-📊 **BOT STATISTICS** 📊
-
-👥 **Total Users:** {safe_user_count}
-📺 **Force Sub Channels:** {safe_channel_count}
-🔗 **Link Expiry:** {safe_expiry} minutes
-
-*Last Cleanup:* {safe_datetime}
-    """
+    # Build message with ALL colons properly escaped
+    stats_text = (
+        "📊 **BOT STATISTICS** 📊\n\n" +
+        f"👥 **Total Users\\:** {safe_user_count}\n" +
+        f"📺 **Force Sub Channels\\:** {safe_channel_count}\n" +
+        f"🔗 **Link Expiry\\:** {safe_expiry} minutes\n\n" +
+        f"*Last Cleanup\\:* {safe_datetime}"
+    )
     
     keyboard = [[InlineKeyboardButton("🔄 REFRESH", callback_data="admin_stats")],
                 [InlineKeyboardButton("🔙 BACK", callback_data="admin_back")]]
@@ -402,20 +400,27 @@ async def send_user_management(query, context, offset=0):
     has_prev = offset > 0
     
     user_list_text = ""
-    for user_id, username, first_name, last_name, joined_date in users:
-        display_name = f"{first_name or ''} {last_name or ''}".strip() or "N/A"
-        display_username = f"@{username}" if username else f"ID: {user_id}"
-        
-        # Escape user-provided data before insertion
-        safe_display_name = escape_markdown_v2(display_name)
-        safe_display_username = escape_markdown_v2(display_username)
-        safe_joined = escape_markdown_v2(datetime.fromisoformat(joined_date).strftime('%Y-%m-%d %H:%M'))
-        
-        user_list_text += f"**{safe_display_name}** (`{safe_display_username}`)\n"
-        user_list_text += f"Joined\\: {safe_joined}\n\n"
+    if users:
+        for user_id, username, first_name, last_name, joined_date in users:
+            display_name = f"{first_name or ''} {last_name or ''}".strip() or "N/A"
+            display_username = f"@{username}" if username else f"ID: {user_id}"
+            
+            # Escape user-provided data before insertion
+            safe_display_name = escape_markdown_v2(display_name)
+            safe_display_username = escape_markdown_v2(display_username)
+            
+            # Format and escape the date
+            try:
+                formatted_date = datetime.fromisoformat(joined_date).strftime('%Y-%m-%d %H:%M')
+                safe_joined = escape_markdown_v2(formatted_date)
+            except:
+                safe_joined = escape_markdown_v2("Unknown")
+            
+            user_list_text += f"**{safe_display_name}** (`{safe_display_username}`)\n"
+            user_list_text += f"Joined\\: {safe_joined}\n\n"
     
     if not user_list_text:
-        user_list_text = r"No users found in the database\."
+        user_list_text = "No users found in the database\\."
 
     # Escape all numeric values
     safe_user_count = escape_markdown_v2(str(user_count))
