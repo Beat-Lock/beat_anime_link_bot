@@ -58,7 +58,7 @@ def escape_markdown_v2(text):
 def init_db():
     # NOTE: The database should be deleted (rm bot_data.db) before deployment 
     # if you encounter the 'unrecognized token: "!"' error.
-    conn = sqlite3.connect('bot_data.db')
+   conn = sqlite3.connect('bot_data_fix.db')
     cursor = conn.cursor()
     
     # Users table
@@ -1051,4 +1051,5 @@ if __name__ == '__main__':
         os.environ['PORT'] = str(8080)
     
     main()
+
 
