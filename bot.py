@@ -589,11 +589,15 @@ async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT
         
         mark_link_used(link_id)
         
+        # Escape all dynamic values
+        safe_chat_title = escape_markdown_v2(chat.title)
+        safe_expiry = escape_markdown_v2(str(LINK_EXPIRY_MINUTES))
+        
         # MarkdownV2 success message (using raw f-string)
         success_message = (
             rf"🎉 *Access Granted\!* 🎉\n\n"
-            rf"*Channel:* {escape_markdown_v2(chat.title)}\n"
-            rf"*Expires in:* {LINK_EXPIRY_MINUTES} minutes\n"
+            rf"*Channel:* {safe_chat_title}\n"
+            rf"*Expires in:* {safe_expiry} minutes\n"
             rf"*Usage:* Single use\n\n"
             r"_Enjoy the content\! 🍿_"
         )
@@ -777,11 +781,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             mark_link_used(link_id)
             
+            # Escape all dynamic values
+            safe_chat_title = escape_markdown_v2(chat.title)
+            safe_expiry = escape_markdown_v2(str(LINK_EXPIRY_MINUTES))
+            
             # MarkdownV2 success message (using raw f-string)
             success_message = (
                 rf"🎉 *Access Granted\!* 🎉\n\n"
-                rf"*Channel:* {escape_markdown_v2(chat.title)}\n"
-                rf"*Expires in:* {LINK_EXPIRY_MINUTES} minutes\n"
+                rf"*Channel:* {safe_chat_title}\n"
+                rf"*Expires in:* {safe_expiry} minutes\n"
                 rf"*Usage:* Single use\n\n"
                 r"_Enjoy the content\! 🍿_"
             )
