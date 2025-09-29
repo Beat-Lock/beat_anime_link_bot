@@ -22,6 +22,7 @@ LINK_EXPIRY_MINUTES = 5
 # ⚙️ CUSTOMIZATION CONSTANTS - YOU MUST UPDATE THESE! 
 # =================================================================
 
+# The correct file ID you retrieved
 WELCOME_PHOTO_FILE_ID = 'AgACAgUAAxkBAAE7ykdo2ju4-Fn8SPrf1ymrTtVpcpsW8gACN84xG2vZ2FaWyB_pu_-_cgEAAwIAA3kAAzYE'
 ABOUT_ME_PHOTO_FILE_ID = 'AgACAgUAAxkBAAE7ykdo2ju4-Fn8SPrf1ymrTtVpcpsW8gACN84xG2vZ2FaWyB_pu_-_cgEAAwIAA3kAAzYE'
 
@@ -256,15 +257,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # Welcome message with bold and quoted style (MarkdownV2)
+        # Welcome message with bold and quoted style (MarkdownV2) - FIX: Added escapes for . and !
         welcome_text = """
-> *ᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ ᴀᴅᴠᴀɴᴄᴇᴅ ʟɪɴᴋs sʜᴀʀɪɴɢ ʙoᴛ.🌟*
+> *ᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ ᴀᴅᴠᴀɴᴄᴇᴅ ʟɪɴᴋs sʜᴀʀɪɴɢ ʙoᴛ\.🌟*
 
-> ᴜsᴇ ᴛʜɪs ʙᴏᴛ ᴛᴏ sᴀғᴇʟʏ sʜᴀʀᴇ ᴄᴏɴᴛᴇɴᴛ ᴡɪᴛʜᴏᴜᴛ ʀɪsᴋɪɴɢ ᴄᴏᴘʏʀɪɢʜᴛ ᴛᴀᴋᴇᴅᴏᴡɴs.\\.\\
-> ᴇxᴘʟᴏʀᴇ ᴛʜᴇ ᴏᴘᴛɪᴏɴs ʙᴇʟᴏᴡ ᴛᴏ ɢᴇᴛ sᴛᴀʀᴛᴇᴅ!\\!
+> ᴜsᴇ ᴛʜɪs ʙᴏᴛ ᴛᴏ sᴀғᴇʟʏ sʜᴀʀᴇ ᴄᴏɴᴛᴇɴᴛ ᴡɪᴛʜᴏᴜᴛ ʀɪsᴋɪɴɢ ᴄᴏᴘʏʀɪɢʜᴛ ᴛᴀᴋᴇᴅᴏᴡɴs\.\
+> ᴇxᴘʟᴏʀᴇ ᴛʜᴇ ᴏᴘᴛɪᴏɴs ʙᴇʟᴏᴡ ᴛᴏ ɢᴇᴛ sᴛᴀʀᴛᴇᴅ\.\!
         """
         
-        if WELCOME_PHOTO_FILE_ID and WELCOME_PHOTO_FILE_ID != 'AgACAgUAAxkBAAE7ykdo2ju4-Fn8SPrf1ymrTtVpcpsW8gACN84xG2vZ2FaWyB_pu_-_cgEAAwIAA3kAAzYE':
+        # FIX: Simplified photo check logic to correctly send the photo
+        if WELCOME_PHOTO_FILE_ID:
             await context.bot.send_photo(
                 chat_id=update.effective_chat.id,
                 photo=WELCOME_PHOTO_FILE_ID,
@@ -326,17 +328,18 @@ async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT
         
         mark_link_used(link_id)
         
+        # FIX: Corrected MarkdownV2 escaping in f-string (using \\!)
         success_message = (
-            f"🎉 *Access Granted\!* 🎉\n\n"
+            f"🎉 *Access Granted\\!* 🎉\n\n"
             f"*Channel:* {chat.title}\n"
             f"*Invite Link:* `{invite_link.invite_link}`\n"
             f"*Expires in:* {LINK_EXPIRY_MINUTES} minutes\n"
             f"*Usage:* Single use\n\n"
-            f"_Enjoy the content\! 🍿_"
+            f"_Enjoy the content\\! 🍿_"
         )
         
-        # New logic: Send Photo with the Access Link as Caption
-        if WELCOME_PHOTO_FILE_ID and WELCOME_PHOTO_FILE_ID != 'PASTE_YOUR_FILE_ID_HERE':
+        # FIX: Simplified photo check logic
+        if WELCOME_PHOTO_FILE_ID:
             await update.message.reply_photo(
                 photo=WELCOME_PHOTO_FILE_ID,
                 caption=success_message,
@@ -450,16 +453,18 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             mark_link_used(link_id)
             
+            # FIX: Corrected MarkdownV2 escaping in f-string (using \\!)
             success_message = (
-                f"🎉 *Access Granted\!* 🎉\n\n"
+                f"🎉 *Access Granted\\!* 🎉\n\n"
                 f"*Channel:* {chat.title}\n"
                 f"*Invite Link:* `{invite_link.invite_link}`\n"
                 f"*Expires in:* {LINK_EXPIRY_MINUTES} minutes\n"
                 f"*Usage:* Single use\n\n"
-                f"_Enjoy the content\! 🍿_"
+                f"_Enjoy the content\\! 🍿_"
             )
 
-            if WELCOME_PHOTO_FILE_ID and WELCOME_PHOTO_FILE_ID != 'PASTE_YOUR_FILE_ID_HERE':
+            # FIX: Simplified photo check logic
+            if WELCOME_PHOTO_FILE_ID:
                 await query.delete_message() 
                 
                 await context.bot.send_photo(
@@ -496,7 +501,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
         
         keyboard = [[InlineKeyboardButton("🔄 REFRESH", callback_data="admin_stats")],
-                   [InlineKeyboardButton("🔙 BACK", callback_data="admin_back")]]
+                    [InlineKeyboardButton("🔙 BACK", callback_data="admin_back")]]
         await query.edit_message_text(stats_text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
     
     elif data == "manage_force_sub":
@@ -607,15 +612,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("CLOSE", callback_data="close_message")]
             ]
             
+            # Welcome message with bold and quoted style (MarkdownV2) - FIX: Added escape for !
             welcome_text = """
 > *🌟 MAIN MENU 🌟*
 
-> EXPLORE THE OPTIONS BELOW TO GET STARTED\\!
+> EXPLORE THE OPTIONS BELOW TO GET STARTED\.\!
             """
             
             await query.delete_message()
             
-            if WELCOME_PHOTO_FILE_ID and WELCOME_PHOTO_FILE_ID != 'PASTE_YOUR_FILE_ID_HERE':
+            # FIX: Simplified photo check logic
+            if WELCOME_PHOTO_FILE_ID:
                 await context.bot.send_photo(
                     chat_id=query.message.chat_id,
                     photo=WELCOME_PHOTO_FILE_ID,
@@ -633,9 +640,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     
     elif data == "about_bot":
-        if ABOUT_ME_PHOTO_FILE_ID and ABOUT_ME_PHOTO_FILE_ID != 'PASTE_YOUR_FILE_ID_HERE':
+        # FIX: Corrected MarkdownV2 escaping for periods and underscores
+        if ABOUT_ME_PHOTO_FILE_ID:
             about_me_text = """
-*About Us\\.\\.*
+*About Us\.\*
 
 ➡️ Made for: @Beat_Anime_Ocean
 ➡️ Owned by: @Beat_Anime_Ocean
@@ -799,27 +807,32 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Exception while handling an update: {context.error}")
 
+# Cleanup task
 async def cleanup_task(context: ContextTypes.DEFAULT_TYPE):
     cleanup_expired_links()
 
 def main():
+    # Initialize database
     init_db()
     
+    # Create Application
     application = Application.builder().token(BOT_TOKEN).build()
     
+    # Add handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("broadcast", broadcast))
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
     application.add_error_handler(error_handler)
     
+    # Add cleanup job (runs every 10 minutes)
     job_queue = application.job_queue
     if job_queue: 
         job_queue.run_repeating(cleanup_task, interval=600, first=10)
     
-    print("🤖 Force Subscription Bot is starting in Polling Mode...")
-    application.run_polling()
+    # Run the bot
+    print("Starting bot...")
+    application.run_polling(poll_interval=1.0)
 
 if __name__ == '__main__':
     main()
-
