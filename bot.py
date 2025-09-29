@@ -15,6 +15,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Bot configuration
+# Ensure BOT_TOKEN and ADMIN_ID are correct
 BOT_TOKEN = '7877393813:AAGKvpRBlYWwO70B9pQpD29BhYCXwiZGngw'
 ADMIN_ID = 829342319
 LINK_EXPIRY_MINUTES = 5  # Links expire after 5 minutes
@@ -24,19 +25,18 @@ PORT = int(os.environ.get('PORT', 8080))
 WEBHOOK_URL = os.environ.get('RENDER_EXTERNAL_URL', '').rstrip('/') + '/'
 
 # =================================================================
-# ⚙️ CUSTOMIZATION CONSTANTS - YOU MUST UPDATE THESE! 
+# ⚙️ CUSTOMIZATION CONSTANTS 
 # =================================================================
 
-# ❗ Channel ID for the welcome message source
-# You identified this as -1002530952988 (Beat anime [Privat]) in an earlier image.
+# Channel ID for the welcome message source
 WELCOME_SOURCE_CHANNEL = -1002530952988
-# ❗ Message ID of the welcome post inside that channel
+# Message ID of the welcome post inside that channel (From your screenshot)
 WELCOME_SOURCE_MESSAGE_ID = 32  
 
 PUBLIC_ANIME_CHANNEL_URL = "https://t.me/BeatAnime"
 REQUEST_CHANNEL_URL = "https://t.me/Beat_Hindi_Dubbed"
 
-ADMIN_CONTACT_USERNAME = "Beat_Anime_Ocean" 
+ADMIN_CONTACT_USERNAME = "@Beat_Anime_Ocean" 
 
 # =================================================================
 
@@ -235,13 +235,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             reply_markup = InlineKeyboardMarkup(keyboard)
             
+            # Use MarkdownV2 for consistency and to avoid conflicting with the old Markdown parser
             channels_text = "\n".join([f"• {title} (`{username}`)" for username, title in not_joined_channels])
             
             await update.message.reply_text(
-                f"📢 **Please join our channels to use this bot!**\n\n"
+                f"📢 **Please join our channels to use this bot\!**\n\n"
                 f"**Required Channels:**\n{channels_text}\n\n"
-                f"Join all channels above and then click Verify Subscription.",
-                parse_mode='Markdown',
+                f"Join all channels above and then click Verify Subscription\\.",
+                parse_mode='MarkdownV2',
                 reply_markup=reply_markup
             )
             return
@@ -257,13 +258,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
-            "▣ **ADMIN PANEL**▣ \n\n"
-            "Welcome back, Admin! Choose an option below:",
-            parse_mode='Markdown',
+            "▣ **ADMIN PANEL** ▣ \n\n"
+            "Welcome back, Admin\! Choose an option below:",
+            parse_mode='MarkdownV2',
             reply_markup=reply_markup
         )
     else:
-        # 🆕 DYNAMIC WELCOME MESSAGE LOGIC with 2-COLUMN LAYOUT
+        # 🆕 DYNAMIC WELCOME MESSAGE LOGIC 
         keyboard = [
             # Row 1: Two buttons side-by-side
             [
@@ -294,8 +295,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Error copying welcome message from channel: {e}")
             # Fallback text if the copy fails (using MarkdownV2 for consistency)
             fallback_text = (
-                "⚠️ *Error loading welcome message\\.*\n\n"
-                "Please check the `WELCOME_SOURCE_CHANNEL` and `WELCOME_SOURCE_MESSAGE_ID` constants\\."
+                "👋 *WELCOME TO THE ADVANCED LINKS SHARING BOT\\.*\n\n"
+                "USE THIS BOT TO SAFELY SHARE CONTENT WITHOUT RISKING COPYRIGHT TAKEDOWNS\\.\n"
+                "EXPLORE THE OPTIONS BELOW TO GET STARTED\\!"
             )
             await update.message.reply_text(fallback_text, parse_mode='MarkdownV2', reply_markup=reply_markup)
 
@@ -304,18 +306,18 @@ async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT
     link_info = get_link_info(link_id)
     
     if not link_info:
-        await update.message.reply_text("❌ This link has expired or is invalid.")
+        await update.message.reply_text("❌ This link has expired or is invalid\\.", parse_mode='MarkdownV2')
         return
     
     channel_username, creator_id, created_time, is_used = link_info
     
     if is_used:
-        await update.message.reply_text("❌ This link has already been used.")
+        await update.message.reply_text("❌ This link has already been used\\.", parse_mode='MarkdownV2')
         return
     
     link_age = datetime.now() - datetime.fromisoformat(created_time)
     if link_age.total_seconds() > LINK_EXPIRY_MINUTES * 60:
-        await update.message.reply_text("❌ This link has expired.")
+        await update.message.reply_text("❌ This link has expired\\.", parse_mode='MarkdownV2')
         return
     
     user = update.effective_user
@@ -333,10 +335,10 @@ async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT
         channels_text = "\n".join([f"• {title}" for _, title in not_joined_channels])
         
         await update.message.reply_text(
-            f"📢 **Please join our channels to get access!**\n\n"
+            f"📢 **Please join our channels to get access\!**\n\n"
             f"**Required Channels:**\n{channels_text}\n\n"
-            f"Join all channels above and then click Verify Subscription.",
-            parse_mode='Markdown',
+            f"Join all channels above and then click Verify Subscription\\.",
+            parse_mode='MarkdownV2',
             reply_markup=reply_markup
         )
         return
@@ -361,7 +363,6 @@ async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT
             f"_Enjoy the content\\! 🍿_"
         )
         
-        # Simple text reply for the link access (no photo needed here)
         await update.message.reply_text(
             success_message,
             parse_mode='MarkdownV2'
@@ -369,7 +370,7 @@ async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT
         
     except Exception as e:
         logger.error(f"Error generating invite link for {channel_username}: {e}")
-        await update.message.reply_text("❌ Error generating access link\\\. Make sure the bot is an *Admin* in the target channel and has the right to create invite links\\.", parse_mode='MarkdownV2')
+        await update.message.reply_text("❌ Error generating access link\\.\\. Make sure the bot is an *Admin* in the target channel and has the right to create invite links\\.", parse_mode='MarkdownV2')
 
 async def broadcast_message_to_all_users(update: Update, context: ContextTypes.DEFAULT_TYPE, message_to_copy):
     """Internal function to handle the actual broadcast by copying the message."""
@@ -378,7 +379,7 @@ async def broadcast_message_to_all_users(update: Update, context: ContextTypes.D
     total_users = len(users)
     
     # Send a confirmation message immediately
-    await update.message.reply_text(f"🚀 Starting broadcast to {total_users} users. Please wait...")
+    await update.message.reply_text(f"🚀 Starting broadcast to {total_users} users\\. Please wait\\.", parse_mode='MarkdownV2')
 
     for user in users:
         target_chat_id = user[0]
@@ -398,8 +399,8 @@ async def broadcast_message_to_all_users(update: Update, context: ContextTypes.D
     
     await context.bot.send_message(
         chat_id=update.effective_chat.id, 
-        text=f"✅ **Broadcast complete!**\n\n📊 Sent to {success_count}/{total_users} users.",
-        parse_mode='Markdown'
+        text=f"✅ **Broadcast complete\!**\n\n📊 Sent to {success_count}/{total_users} users\\.",
+        parse_mode='MarkdownV2'
     )
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -415,13 +416,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             del user_states[user_id]
             
     if data == "close_message":
-        await query.delete_message()
+        # Safe deletion check to prevent 'Message can't be edited' or 'No text in the message to edit' errors
+        try:
+            await query.delete_message()
+        except Exception as e:
+            logger.warning(f"Could not delete message on 'close_message': {e}")
         return
 
     # New Admin Broadcast Flow Start
     if data == "admin_broadcast_start":
         if not is_admin(user_id):
-            await query.edit_message_text("❌ Admin only.")
+            await query.edit_message_text("❌ Admin only\\.", parse_mode='MarkdownV2')
             return
         
         user_states[user_id] = PENDING_BROADCAST
@@ -430,9 +435,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await query.edit_message_text(
             "📢 **MEDIA BROADCAST MODE**\n\n"
-            "Please **forward** the message (image, video, file, sticker, or text with stylish caption) you wish to broadcast *now*.\n\n"
-            "**Note:** Any message you send next will be copied to all users.",
-            parse_mode='Markdown',
+            "Please **forward** the message \\(image, video, file, sticker, or text with stylish caption\\) you wish to broadcast *now*\\.\n\n"
+            "**Note:** Any message you send next will be copied to all users\\.",
+            parse_mode='MarkdownV2',
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return
@@ -444,10 +449,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not_joined_channels:
             channels_text = "\n".join([f"• {title}" for _, title in not_joined_channels])
             await query.edit_message_text(
-                f"❌ **You haven't joined all required channels!**\n\n"
+                f"❌ **You haven't joined all required channels\!**\n\n"
                 f"**Still missing:**\n{channels_text}\n\n"
-                f"Please join all channels and try again.",
-                parse_mode='Markdown'
+                f"Please join all channels and try again\\.",
+                parse_mode='MarkdownV2'
             )
             return
         
@@ -459,29 +464,30 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("📢 START MEDIA BROADCAST", callback_data="admin_broadcast_start")],
                 [InlineKeyboardButton("👥 USER MANAGEMENT", callback_data="user_management")]
             ]
-            text = "👑 **ADMIN PANEL** 👑\n\nWelcome back, Admin!"
-            await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+            text = "👑 **ADMIN PANEL** 👑\n\nWelcome back, Admin\\!"
+            await query.edit_message_text(text, parse_mode='MarkdownV2', reply_markup=InlineKeyboardMarkup(keyboard))
         else:
-            # 🆕 Use the dynamic welcome message for verified users (Updated Layout)
+            # Use the dynamic welcome message for verified users (Updated Layout)
             keyboard = [
-                # Row 1: Two buttons side-by-side
                 [
                     InlineKeyboardButton("ANIME CHANNEL", url=PUBLIC_ANIME_CHANNEL_URL),
                     InlineKeyboardButton("REQUEST ANIME CHANNEL", url=REQUEST_CHANNEL_URL)
                 ],
-                # Row 2: Two buttons side-by-side
                 [
                     InlineKeyboardButton("CONTACT ADMIN", url=f"https://t.me/{ADMIN_CONTACT_USERNAME}"),
                     InlineKeyboardButton("ABOUT ME", callback_data="about_bot")
                 ],
-                # Row 3: Single button (CLOSE)
                 [
                     InlineKeyboardButton("CLOSE", callback_data="close_message")
                 ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            await query.delete_message() # Delete the verification message
+            # Delete the verification message before sending the welcome message
+            try:
+                await query.delete_message() 
+            except Exception:
+                pass
             
             try:
                 # Copy the entire message (media + text) from the source channel
@@ -494,8 +500,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logger.error(f"Error copying verified welcome message: {e}")
                 # Fallback text
-                fallback_text = "✅ **Subscription verified!**\n\nWelcome to the bot! Explore the options below:"
-                await context.bot.send_message(query.message.chat_id, fallback_text, parse_mode='Markdown', reply_markup=reply_markup)
+                fallback_text = "✅ **Subscription verified\!**\n\nWelcome to the bot\! Explore the options below\\:"
+                await context.bot.send_message(query.message.chat_id, fallback_text, parse_mode='MarkdownV2', reply_markup=reply_markup)
         
         
     elif data.startswith("verify_deep_"):
@@ -505,16 +511,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not_joined_channels:
             channels_text = "\n".join([f"• {title}" for _, title in not_joined_channels])
             await query.edit_message_text(
-                f"❌ **You haven't joined all required channels!**\n\n"
+                f"❌ **You haven't joined all required channels\!**\n\n"
                 f"**Still missing:**\n{channels_text}\n\n"
-                f"Please join all channels and try again.",
-                parse_mode='Markdown'
+                f"Please join all channels and try again\\.",
+                parse_mode='MarkdownV2'
             )
             return
         
         link_info = get_link_info(link_id)
         if not link_info:
-            await query.edit_message_text("❌ Link expired or invalid.")
+            await query.edit_message_text("❌ Link expired or invalid\\.", parse_mode='MarkdownV2')
             return
         
         channel_username = link_info[0]
@@ -538,7 +544,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"_Enjoy the content\\! 🍿_"
             )
 
-            await query.delete_message() 
+            try:
+                await query.delete_message() 
+            except Exception:
+                pass
+                
             await context.bot.send_message(
                 chat_id=query.message.chat_id,
                 text=success_message,
@@ -546,11 +556,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             
         except Exception as e:
-            await query.edit_message_text("❌ Error generating access link\\\. Make sure the bot is an *Admin* in the target channel and has the right to create invite links\\.", parse_mode='MarkdownV2')
+            await query.edit_message_text("❌ Error generating access link\\.\\. Make sure the bot is an *Admin* in the target channel and has the right to create invite links\\.", parse_mode='MarkdownV2')
     
     elif data == "admin_stats":
         if not is_admin(user_id):
-            await query.edit_message_text("❌ Admin only.")
+            await query.edit_message_text("❌ Admin only\\.", parse_mode='MarkdownV2')
             return
         
         user_count = get_user_count()
@@ -563,19 +573,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📺 **Force Sub Channels:** {channel_count}
 🔗 **Link Expiry:** {LINK_EXPIRY_MINUTES} minutes
 
-**Last Cleanup:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+*Last Cleanup:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
         """
         
         keyboard = [[InlineKeyboardButton("🔄 REFRESH", callback_data="admin_stats")],
                     [InlineKeyboardButton("🔙 BACK", callback_data="admin_back")]]
-        await query.edit_message_text(stats_text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.edit_message_text(stats_text, parse_mode='MarkdownV2', reply_markup=InlineKeyboardMarkup(keyboard))
     
     elif data == "manage_force_sub":
         await show_force_sub_management(query, context)
     
     elif data == "generate_links":
         if not is_admin(user_id):
-            await query.edit_message_text("❌ Admin only.")
+            await query.edit_message_text("❌ Admin only\\.", parse_mode='MarkdownV2')
             return
         
         user_states[user_id] = GENERATE_LINK_CHANNEL_USERNAME
@@ -584,15 +594,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await query.edit_message_text(
             "🔗 **GENERATE CHANNEL LINKS**\n\n"
-            "Please send the **username** (starting with @) of the channel "
-            "you want to generate a one-time, expirable link for.",
-            parse_mode='Markdown',
+            "Please send the **username** \\(starting with @\\) of the channel "
+            "you want to generate a one\\-time, expirable link for\\.",
+            parse_mode='MarkdownV2',
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     
     elif data.startswith("genlink_"):
         if not is_admin(user_id):
-            await query.edit_message_text("❌ Admin only.")
+            await query.edit_message_text("❌ Admin only\\.", parse_mode='MarkdownV2')
             return
         
         channel_username = data[8:]
@@ -606,21 +616,21 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"**Channel:** {channel_username}\n"
             f"**Expires in:** {LINK_EXPIRY_MINUTES} minutes\n\n"
             f"**Direct Link:**\n`{deep_link}`\n\n"
-            f"Share this link with users!",
-            parse_mode='Markdown'
+            f"Share this link with users\\!",
+            parse_mode='MarkdownV2'
         )
     
     elif data == "add_channel_start":
         if not is_admin(user_id):
-            await query.edit_message_text("❌ Admin only.")
+            await query.edit_message_text("❌ Admin only\\.", parse_mode='MarkdownV2')
             return
         
         user_states[user_id] = ADD_CHANNEL_USERNAME
         await query.edit_message_text(
             "📺 **ADD FORCE SUBSCRIPTION CHANNEL**\n\n"
-            "Please send me the channel username (starting with @):\n\n"
+            "Please send me the channel username \\(starting with @\\):\n\n"
             "Example: `@Beat_Anime_Ocean`",
-            parse_mode='Markdown',
+            parse_mode='MarkdownV2',
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 CANCEL", callback_data="manage_force_sub")]])
         )
     
@@ -638,11 +648,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
             await query.edit_message_text(
                 f"🗑️ **CONFIRM DELETION**\n\n"
-                f"Are you sure you want to delete this force sub channel?\n\n"
+                f"Are you sure you want to delete this force sub channel\\?\n\n"
                 f"**Channel:** {channel_info[1]}\n"
                 f"**Username:** {channel_info[0]}\n\n"
-                f"This action cannot be undone!",
-                parse_mode='Markdown',
+                f"This action cannot be undone\\!",
+                parse_mode='MarkdownV2',
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
     
@@ -652,8 +662,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await query.edit_message_text(
             f"✅ **CHANNEL DELETED**\n\n"
-            f"Force sub channel `{channel_username}` has been deleted successfully.",
-            parse_mode='Markdown',
+            f"Force sub channel `{channel_username}` has been deleted successfully\\.",
+            parse_mode='MarkdownV2',
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📺 MANAGE CHANNELS", callback_data="manage_force_sub")]])
         )
     
@@ -666,29 +676,29 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("📢 START MEDIA BROADCAST", callback_data="admin_broadcast_start")],
                 [InlineKeyboardButton("👥 USER MANAGEMENT", callback_data="user_management")]
             ]
-            text = "👑 **ADMIN PANEL** 👑\n\nChoose an option:"
-            await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+            text = "👑 **ADMIN PANEL** 👑\n\nChoose an option\\:"
+            await query.edit_message_text(text, parse_mode='MarkdownV2', reply_markup=InlineKeyboardMarkup(keyboard))
         else:
-            # 🆕 NEW DYNAMIC WELCOME MESSAGE LOGIC for user_back (Updated Layout)
+            # 🆕 NEW DYNAMIC WELCOME MESSAGE LOGIC for user_back 
             keyboard = [
-                # Row 1: Two buttons side-by-side
                 [
                     InlineKeyboardButton("ANIME CHANNEL", url=PUBLIC_ANIME_CHANNEL_URL),
                     InlineKeyboardButton("REQUEST ANIME CHANNEL", url=REQUEST_CHANNEL_URL)
                 ],
-                # Row 2: Two buttons side-by-side
                 [
                     InlineKeyboardButton("CONTACT ADMIN", url=f"https://t.me/{ADMIN_CONTACT_USERNAME}"),
                     InlineKeyboardButton("ABOUT ME", callback_data="about_bot")
                 ],
-                # Row 3: Single button (CLOSE)
                 [
                     InlineKeyboardButton("CLOSE", callback_data="close_message")
                 ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            await query.delete_message()
+            try:
+                await query.delete_message()
+            except Exception:
+                pass
             
             try:
                 # Copy the entire message (media + text) from the source channel
@@ -701,40 +711,47 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logger.error(f"Error copying 'user_back' message: {e}")
                 # Fallback text
-                fallback_text = "🌟 **MAIN MENU** 🌟\n\nChoose an option:"
-                await context.bot.send_message(query.message.chat_id, fallback_text, parse_mode='Markdown', reply_markup=reply_markup)
+                fallback_text = "🌟 **MAIN MENU** 🌟\n\nChoose an option\\:"
+                await context.bot.send_message(query.message.chat_id, fallback_text, parse_mode='MarkdownV2', reply_markup=reply_markup)
 
     
     elif data == "about_bot":
-        # Using the information from your screenshot for the About Me section
+        # FIXED: MarkdownV2 escape sequences (e.g., escaping the dot after 'Adios' and the backslash)
         about_me_text = """
 *About Us\\.*
 
-➡️ Made for: @Ayanakaji
-➡️ Owned by: @Ayanakaji
-➡️ Developer: @Union\_Owner
+▣ Made for: @Beat_Anime_Ocean
+▣ Owned by: @Beat_Anime_Ocean
+▣ Developer: @Beat_Anime_Ocean
 
 _Adios \!\!_
 """
         keyboard = [[InlineKeyboardButton("🔙 BACK", callback_data="user_back")]] 
         
-        # FIX: Delete and Send New Message to avoid 'Message can't be edited' error
         try:
-            await query.delete_message()
+            await query.edit_message_text(
+                text=about_me_text,
+                parse_mode='MarkdownV2',
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
         except Exception:
-            logger.warning("Could not delete message during 'about_bot' switch, proceeding to send new message.")
-
-        await context.bot.send_message(
-            chat_id=query.message.chat_id,
-            text=about_me_text,
-            parse_mode='MarkdownV2',
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+            # Fallback for when the message can't be edited (e.g., if it was a photo)
+            try:
+                await query.delete_message()
+            except Exception:
+                pass
+            
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text=about_me_text,
+                parse_mode='MarkdownV2',
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
 
 async def show_force_sub_management(query, context):
     user_id = query.from_user.id
     if not is_admin(user_id):
-        await query.edit_message_text("❌ Admin only.")
+        await query.edit_message_text("❌ Admin only\\.", parse_mode='MarkdownV2')
         return
     
     channels = get_all_force_sub_channels()
@@ -751,22 +768,22 @@ async def show_force_sub_management(query, context):
     text += f"**Total Channels:** {channel_count}\n\n"
     
     if channel_count == 0:
-        text += "No force sub channels added yet. Click 'ADD CHANNEL' to get started!"
+        text += "No force sub channels added yet\\. Click 'ADD CHANNEL' to get started\\!"
     else:
-        text += "Users must join ALL these channels to use the bot.\nSelect a channel to manage:"
+        text += "Users must join ALL these channels to use the bot\\.\nSelect a channel to manage\\:"
     
-    await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+    await query.edit_message_text(text, parse_mode='MarkdownV2', reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def show_channel_details(query, context, channel_username):
     user_id = query.from_user.id
     if not is_admin(user_id):
-        await query.edit_message_text("❌ Admin only.")
+        await query.edit_message_text("❌ Admin only\\.", parse_mode='MarkdownV2')
         return
     
     channel_info = get_force_sub_channel_info(channel_username)
     
     if not channel_info:
-        await query.edit_message_text("❌ Channel not found.")
+        await query.edit_message_text("❌ Channel not found\\.", parse_mode='MarkdownV2')
         return
     
     channel_username, channel_title = channel_info
@@ -782,9 +799,9 @@ async def show_channel_details(query, context, channel_username):
     text += f"**Title:** {channel_title}\n"
     text += f"**Username:** {channel_username}\n"
     text += f"**Status:** ✅ Active\n\n"
-    text += f"Users must join this channel to access bot features."
+    text += f"Users must join this channel to access bot features\\."
     
-    await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+    await query.edit_message_text(text, parse_mode='MarkdownV2', reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -797,7 +814,7 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
     
     if state == ADD_CHANNEL_USERNAME:
         if not text.startswith('@'):
-            await update.message.reply_text("❌ Please provide a valid channel username starting with @. Try again:", parse_mode='Markdown')
+            await update.message.reply_text("❌ Please provide a valid channel username starting with @\\. Try again\\:", parse_mode='MarkdownV2')
             return
         
         context.user_data['channel_username'] = text
@@ -805,9 +822,9 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
         
         await update.message.reply_text(
             "📝 **STEP 2: Channel Title**\n\n"
-            "Now please send me the display title for this channel:\n\n"
+            "Now please send me the display title for this channel\\:\n\n"
             "Example: `Anime Ocean Channel`",
-            parse_mode='Markdown',
+            parse_mode='MarkdownV2',
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 CANCEL", callback_data="manage_force_sub")]])
         )
     
@@ -821,21 +838,21 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
                 del context.user_data['channel_username']
             
             await update.message.reply_text(
-                f"✅ **FORCE SUB CHANNEL ADDED SUCCESSFULLY!**\n\n"
+                f"✅ **FORCE SUB CHANNEL ADDED SUCCESSFULLY\!**\n\n"
                 f"**Username:** {channel_username}\n"
                 f"**Title:** {text}\n\n"
-                f"Channel has been added to force subscription list!",
-                parse_mode='Markdown',
+                f"Channel has been added to force subscription list\\!",
+                parse_mode='MarkdownV2',
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📺 MANAGE CHANNELS", callback_data="manage_force_sub")]])
             )
         else:
-            await update.message.reply_text("❌ Error adding channel. It might already exist or there was a database error.")
+            await update.message.reply_text("❌ Error adding channel\\. It might already exist or there was a database error\\.", parse_mode='MarkdownV2')
             
     elif state == GENERATE_LINK_CHANNEL_USERNAME:
         channel_username = text.strip()
         
         if not channel_username.startswith('@'):
-            await update.message.reply_text("❌ Please provide a valid channel username starting with @. Try again:", parse_mode='Markdown')
+            await update.message.reply_text("❌ Please provide a valid channel username starting with @\\. Try again\\:", parse_mode='MarkdownV2')
             return
             
         if user_id in user_states:
@@ -850,8 +867,8 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
             f"**Channel:** {channel_username}\n"
             f"**Expires in:** {LINK_EXPIRY_MINUTES} minutes\n\n"
             f"**Direct Link:**\n`{deep_link}`\n\n"
-            f"Share this link with users!",
-            parse_mode='Markdown',
+            f"Share this link with users\\!",
+            parse_mode='MarkdownV2',
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK TO MENU", callback_data="admin_back")]])
         )
         
@@ -869,7 +886,8 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
                 [InlineKeyboardButton("👥 USER MANAGEMENT", callback_data="user_management")]
             ]
             await update.message.reply_text(
-                "✅ Broadcast finished. Returning to Admin Panel:",
+                "✅ Broadcast finished\\. Returning to Admin Panel\\:",
+                parse_mode='MarkdownV2',
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
             return
@@ -902,9 +920,9 @@ def main():
     if job_queue: 
         job_queue.run_repeating(cleanup_task, interval=600, first=10)
 
-    # 🚨 CRITICAL CHANGE 🚨: Switch from run_polling() to run_webhook() for Render stability
+    # 🚨 CRITICAL FIX 🚨: Switch from run_polling() to run_webhook() for Render stability
     if WEBHOOK_URL and BOT_TOKEN:
-        print(f"🤖 Starting Webhook listener on port {PORT}. Webhook URL: {WEBHOOK_URL}")
+        print(f"🤖 Starting Webhook listener on port {PORT}\\. Webhook URL: {WEBHOOK_URL}")
         application.run_webhook(
             listen="0.0.0.0",
             port=PORT,
