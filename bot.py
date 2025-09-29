@@ -310,7 +310,7 @@ async def show_force_sub_management(query, context):
     # If channels exist, add specific management buttons
     if channels:
         # Create a button for each channel to view details/delete
-        channel_buttons = [InlineKeyboardButton(channel[1], callback_data=f"channel_{channel[0]}")] for channel in channels]
+        channel_buttons = [InlineKeyboardButton(channel[1], callback_data=f"channel_{channel[0]}") for channel in channels]
         # Group channel buttons into rows of 2 for better display
         grouped_buttons = [channel_buttons[i:i + 2] for i in range(0, len(channel_buttons), 2)]
         
@@ -1145,4 +1145,5 @@ if __name__ == '__main__':
         os.environ['PORT'] = str(8080)
     
     main()
+
 
