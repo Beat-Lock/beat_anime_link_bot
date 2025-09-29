@@ -55,22 +55,9 @@ def escape_markdown_v2(text):
     text = text.replace('\\', '\\\\')
     return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
 
-# --- CORRECTED DATABASE INITIALIZATION WITH TEMPORARY FIX ---
+# --- CLEAN DATABASE INITIALIZATION (FINAL VERSION) ---
 def init_db():
-    db_file = 'bot_data.db'
-    
-    # === TEMPORARY CRITICAL FIX START ===
-    # This block deletes the existing file to resolve the "no such table" error.
-    # YOU MUST REMOVE THIS BLOCK AFTER ONE SUCCESSFUL DEPLOYMENT!
-    if os.path.exists(db_file):
-        try:
-            os.remove(db_file)
-            print(f"Removed incomplete database: {db_file} to force recreation.")
-        except Exception as e:
-            print(f"Could not remove database file: {e}")
-    # === TEMPORARY CRITICAL FIX END ===
-            
-    conn = sqlite3.connect(db_file)
+    conn = sqlite3.connect('bot_data.db')
     cursor = conn.cursor()
     
     # Users table
@@ -95,7 +82,7 @@ def init_db():
         )
     ''')
     
-    # Generated links table (This is the table that was missing)
+    # Generated links table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS generated_links (
             link_id TEXT PRIMARY KEY,
@@ -108,6 +95,7 @@ def init_db():
     
     conn.commit()
     conn.close()
+
 # --- END DATABASE INITIALIZATION ---
 
 
@@ -1165,3 +1153,4 @@ if __name__ == '__main__':
         os.environ['PORT'] = str(8080)
     
     main()
+
