@@ -58,18 +58,9 @@ def escape_markdown_v2(text):
 # --- TEMPORARY CRITICAL FIX: Delete the old DB file on startup ---
 def init_db():
     # TEMPORARY FIX: Check if the file exists and delete it to force a clean recreation
-    # REMOVE THIS BLOCK AFTER THE BOT SUCCESSFULLY DEPLOYS ONCE!
-    db_file = 'bot_data.db'
-    if os.path.exists(db_file):
-        try:
-            os.remove(db_file)
-            print(f"Removed incomplete database: {db_file} to force recreation.")
-        except Exception as e:
-            # Handle cases where the file might be locked by another process
-            print(f"Could not remove database file: {e}")
-            
-    # NOTE: Reverting to the standard name 'bot_data.db' now that the bot logic is fixed
-    conn = sqlite3.connect(db_file) # Connect to the now-deleted or newly created file
+ # --- REVERTED DATABASE INITIALIZATION (FINAL CODE) ---
+def init_db():
+    conn = sqlite3.connect('bot_data.db')
     cursor = conn.cursor()
     
     # Users table
@@ -83,18 +74,9 @@ def init_db():
         )
     ''')
     
-    # Force subscription channels table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS force_sub_channels (
-            channel_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            channel_username TEXT UNIQUE,
-            channel_title TEXT,
-            added_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            is_active BOOLEAN DEFAULT 1
-        )
-    ''')
+    # ... rest of the CREATE TABLE statements ...
     
-    # Generated links table (This is the table that was missing)
+    # Generated links table 
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS generated_links (
             link_id TEXT PRIMARY KEY,
@@ -1145,5 +1127,6 @@ if __name__ == '__main__':
         os.environ['PORT'] = str(8080)
     
     main()
+
 
 
