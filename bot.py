@@ -875,7 +875,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         safe_channel_username = escape_markdown_v2(channel_username)
         deep_link = f"https://t.me/{bot_username}?start={link_id}"
         
-        # **CRITICAL FIX:** Escape the deep_link because link_id contains unescaped MarkdownV2 characters like '_'
+        # **FIX 1:** Escape the deep_link because link_id contains unescaped MarkdownV2 characters like '_'
         safe_deep_link = escape_markdown_v2(deep_link)
         
         # Using raw f-string to ensure correct MarkdownV2 escaping
@@ -883,7 +883,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             rf"🔗 **LINK GENERATED** 🔗\n\n"
             rf"**Channel:** {safe_channel_username}\n"
             rf"**Expires in:** {LINK_EXPIRY_MINUTES} minutes\n\n"
-            rf"**Direct Link:**\n`{safe_deep_link}`\n\n"
+            rf"**Direct Link:**\n`{safe_deep_link}`\n\n" # <--- FIXED
             r"Share this link with users\!",
             parse_mode='MarkdownV2',
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK TO CHANNEL", callback_data=f"channel_{channel_username}")]])
@@ -1108,7 +1108,7 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
         safe_channel_username = escape_markdown_v2(channel_username)
         deep_link = f"https://t.me/{bot_username}?start={link_id}"
         
-        # **CRITICAL FIX:** Escape the deep_link because link_id contains unescaped MarkdownV2 characters like '_'
+        # **FIX 2:** Escape the deep_link because link_id contains unescaped MarkdownV2 characters like '_'
         safe_deep_link = escape_markdown_v2(deep_link)
         
         # Using raw f-string to ensure correct MarkdownV2 escaping
@@ -1116,7 +1116,7 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
             rf"🔗 **LINK GENERATED** 🔗\n\n"
             rf"**Channel:** {safe_channel_username}\n"
             rf"**Expires in:** {LINK_EXPIRY_MINUTES} minutes\n\n"
-            rf"**Direct Link:**\n`{safe_deep_link}`\n\n"
+            rf"**Direct Link:**\n`{safe_deep_link}`\n\n" # <--- FIXED
             r"Share this link with users\!",
             parse_mode='MarkdownV2',
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK TO MENU", callback_data="admin_back")]])
