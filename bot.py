@@ -2,11 +2,11 @@ import os
 import logging
 import sqlite3
 import secrets
+import re
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 import asyncio
-import re
 
 # Configure logging
 logging.basicConfig(
@@ -15,8 +15,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Bot configuration (Replace with your actual token and Admin ID)
-BOT_TOKEN = '7877393813:AAGKvpBBlYWwO70B9pQpD29BhYCXwiZGngw'
+# Bot configuration (UPDATED with your new token)
+BOT_TOKEN = '7877393813:AAEqVD-Ar6M4O3yg6h2ZuNUN_PPY4NRVr10'
 ADMIN_ID = 829342319 # Replace with your actual Telegram User ID
 LINK_EXPIRY_MINUTES = 5  # Links expire after 5 minutes
 
@@ -71,7 +71,7 @@ def init_db():
     ''')
     
     # Force subscription channels table
-    # FIX: Corrected SQL syntax by removing extra single quote ')'
+    # FIX: Corrected SQL syntax that caused the sqlite3.OperationalError
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS force_sub_channels (
             channel_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -238,7 +238,8 @@ async def send_admin_menu(chat_id, context):
         [InlineKeyboardButton("👥 USER MANAGEMENT", callback_data="user_management")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    text = "👑 **ADMIN PANEL** 👑\n\nWelcome back, Admin\! Choose an option below\\:"
+    # FIX: Corrected MarkdownV2 escaping for the exclamation mark
+    text = "👑 **ADMIN PANEL** 👑\n\nWelcome back, Admin\\! Choose an option below\\:"
     
     await context.bot.send_message(
         chat_id=chat_id,
@@ -365,8 +366,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Escape channel info for the message body
             channels_text = "\n".join([f"• {escape_markdown_v2(title)} (`{escape_markdown_v2(username)}`)" for username, title in not_joined_channels])
             
+            # FIX: Corrected MarkdownV2 escaping for the exclamation mark
             await update.message.reply_text(
-                f"📢 **Please join our channels to use this bot\!**\n\n"
+                f"📢 **Please join our channels to use this bot\\!**\n\n"
                 f"**Required Channels:**\n{channels_text}\n\n"
                 f"Join all channels above and then click Verify Subscription\\.",
                 parse_mode='MarkdownV2',
@@ -445,8 +447,9 @@ async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT
         
         channels_text = "\n".join([f"• {escape_markdown_v2(title)}" for _, title in not_joined_channels])
         
+        # FIX: Corrected MarkdownV2 escaping for the exclamation mark
         await update.message.reply_text(
-            f"📢 **Please join our channels to get access\!**\n\n"
+            f"📢 **Please join our channels to get access\\!**\n\n"
             f"**Required Channels:**\n{channels_text}\n\n"
             f"Join all channels above and then click Verify Subscription\\.",
             parse_mode='MarkdownV2',
@@ -513,9 +516,10 @@ async def broadcast_message_to_all_users(update: Update, context: ContextTypes.D
     safe_success_count = escape_markdown_v2(str(success_count))
     safe_total_users = escape_markdown_v2(str(total_users))
     
+    # FIX: Corrected MarkdownV2 escaping for the exclamation mark
     await context.bot.send_message(
         chat_id=update.effective_chat.id, 
-        text=f"✅ **Broadcast complete\!**\n\n📊 Sent to {safe_success_count}/{safe_total_users} users\\.",
+        text=f"✅ **Broadcast complete\\!**\n\n📊 Sent to {safe_success_count}/{safe_total_users} users\\.",
         parse_mode='MarkdownV2'
     )
 
@@ -569,15 +573,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if not_joined_channels:
             channels_text = "\n".join([f"• {escape_markdown_v2(title)}" for _, title in not_joined_channels])
+            # FIX: Corrected MarkdownV2 escaping for the exclamation mark
             await query.edit_message_text(
-                f"❌ **You haven't joined all required channels\!**\n\n"
+                f"❌ **You haven't joined all required channels\\!**\n\n"
                 f"**Still missing:**\n{channels_text}\n\n"
                 f"Please join all channels and try again\\.",
                 parse_mode='MarkdownV2'
             )
             return
         
-        if is_admin(user.id):
+        if is_admin(user_id):
             try:
                 await query.delete_message()
             except Exception:
@@ -613,7 +618,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             except Exception as e:
                 logger.error(f"Error copying verified welcome message: {e}")
-                fallback_text = "✅ **Subscription verified\!**\n\nWelcome to the bot\! Explore the options below\\:"
+                # FIX: Corrected MarkdownV2 escaping for the exclamation mark
+                fallback_text = "✅ **Subscription verified\\!**\n\nWelcome to the bot\\! Explore the options below\\:"
                 await context.bot.send_message(query.message.chat_id, fallback_text, parse_mode='MarkdownV2', reply_markup=reply_markup)
         
         
@@ -623,8 +629,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if not_joined_channels:
             channels_text = "\n".join([f"• {escape_markdown_v2(title)}" for _, title in not_joined_channels])
+            # FIX: Corrected MarkdownV2 escaping for the exclamation mark
             await query.edit_message_text(
-                f"❌ **You haven't joined all required channels\!**\n\n"
+                f"❌ **You haven't joined all required channels\\!**\n\n"
                 f"**Still missing:**\n{channels_text}\n\n"
                 f"Please join all channels and try again\\.",
                 parse_mode='MarkdownV2'
@@ -878,6 +885,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     
     elif data == "about_bot":
+        # FIX: Corrected MarkdownV2 escaping for the exclamation mark
         about_me_text = """
 *About Us\\.*
 
@@ -885,7 +893,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ▣**Owned by: @Beat\\_Anime\\_Ocean**
 ▣**Developer: @Beat\\_Anime\\_Ocean**
 
-_Adios \!\!_
+_Adios \\!\\!_
 """
         keyboard = [[InlineKeyboardButton("🔙 BACK", callback_data="user_back")]] 
         
@@ -1014,8 +1022,9 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
             safe_channel_username = escape_markdown_v2(channel_username)
             safe_channel_title = escape_markdown_v2(channel_title)
             
+            # FIX: Corrected MarkdownV2 escaping for the exclamation mark
             await update.message.reply_text(
-                f"✅ **FORCE SUB CHANNEL ADDED SUCCESSFULLY\!**\n\n"
+                f"✅ **FORCE SUB CHANNEL ADDED SUCCESSFULLY\\!**\n\n"
                 f"**Username:** {safe_channel_username}\n"
                 f"**Title:** {safe_channel_title}\n\n"
                 f"Channel has been added to force subscription list\\!",
@@ -1061,6 +1070,11 @@ async def cleanup_task(context: ContextTypes.DEFAULT_TYPE):
 def main():
     init_db()
     
+    # Check if BOT_TOKEN is set
+    if not BOT_TOKEN:
+        logger.error("BOT_TOKEN is missing. Please update it in bot.py.")
+        return
+
     application = Application.builder().token(BOT_TOKEN).build()
     
     application.add_handler(CommandHandler("start", start))
@@ -1074,9 +1088,11 @@ def main():
     job_queue = application.job_queue
     if job_queue: 
         job_queue.run_repeating(cleanup_task, interval=600, first=10)
+    else:
+        logger.warning("JobQueue is not available. Background cleanup task for expired links is disabled. Run `pip install \"python-telegram-bot[job-queue]\"` to enable.")
 
     if WEBHOOK_URL and BOT_TOKEN:
-        print(f"🤖 Starting Webhook listener on port {PORT}. Webhook URL: {WEBHOOK_URL}")
+        print(f"🤖 Starting Webhook listener on port {PORT}. Webhook URL: {WEBHOOK_URL + BOT_TOKEN}")
         application.run_webhook(
             listen="0.0.0.0",
             port=PORT,
