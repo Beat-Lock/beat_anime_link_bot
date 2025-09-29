@@ -861,28 +861,28 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     
-   elif state == GENERATE_LINK_CHANNEL_USERNAME:
-        # ... (other code omitted for brevity)
+        elif state == GENERATE_LINK_CHANNEL_USERNAME:
+            # ... (other code omitted for brevity)
             
-        link_id = generate_link_id(channel_username, user_id)
-        bot_username = context.bot.username
+            link_id = generate_link_id(channel_username, user_id)
+            bot_username = context.bot.username
         
-        # Escape channel username for display
-        safe_channel_username = escape_markdown_v2(channel_username)
-        deep_link = f"https://t.me/{bot_username}?start={link_id}"
+            # Escape channel username for display
+            safe_channel_username = escape_markdown_v2(channel_username)
+            deep_link = f"https://t.me/{bot_username}?start={link_id}"
         
-        # FIX: Escape the deep_link because the link_id contains MarkdownV2 reserved characters like '_'
-        safe_deep_link = escape_markdown_v2(deep_link)
+            # FIX: Escape the deep_link because the link_id contains MarkdownV2 reserved characters like '_'
+            safe_deep_link = escape_markdown_v2(deep_link)
         
-        # Using raw f-string to ensure correct MarkdownV2 escaping
-        await update.message.reply_text(
-            rf"🔗 **LINK GENERATED** 🔗\n\n"
-            rf"**Channel:** {safe_channel_username}\n"
-            rf"**Expires in:** {LINK_EXPIRY_MINUTES} minutes\n\n"
-            rf"**Direct Link:**\n`{safe_deep_link}`\n\n" # <-- CORRECTED VARIABLE USE
-            r"Share this link with users\!",
-            parse_mode='MarkdownV2',
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK TO MENU", callback_data="admin_back")]])
+            # Using raw f-string to ensure correct MarkdownV2 escaping
+            await update.message.reply_text(
+                rf"🔗 **LINK GENERATED** 🔗\n\n"
+                rf"**Channel:** {safe_channel_username}\n"
+                rf"**Expires in:** {LINK_EXPIRY_MINUTES} minutes\n\n"
+                rf"**Direct Link:**\n`{safe_deep_link}`\n\n" # <-- CORRECTED VARIABLE USE
+                r"Share this link with users\!",
+                parse_mode='MarkdownV2',
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK TO MENU", callback_data="admin_back")]])
         )
     
     # --- ADD CHANNEL FLOW START ---
@@ -1166,4 +1166,5 @@ if __name__ == '__main__':
         os.environ['PORT'] = str(8080)
     
     main()
+
 
