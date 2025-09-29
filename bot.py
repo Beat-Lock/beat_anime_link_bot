@@ -22,8 +22,8 @@ LINK_EXPIRY_MINUTES = 5
 # ⚙️ CUSTOMIZATION CONSTANTS - YOU MUST UPDATE THESE! 
 # =================================================================
 
-WELCOME_PHOTO_FILE_ID = 'https://ibb.co/gFVvgVPF'
-ABOUT_ME_PHOTO_FILE_ID = 'https://t.me/BeatAnime'
+WELCOME_PHOTO_FILE_ID = 'AgACAgUAAxkBAAE7ykdo2ju4-Fn8SPrf1ymrTtVpcpsW8gACN84xG2vZ2FaWyB_pu_-_cgEAAwIAA3kAAzYE'
+ABOUT_ME_PHOTO_FILE_ID = 'AgACAgUAAxkBAAE7ykdo2ju4-Fn8SPrf1ymrTtVpcpsW8gACN84xG2vZ2FaWyB_pu_-_cgEAAwIAA3kAAzYE'
 
 PUBLIC_ANIME_CHANNEL_URL = "https://t.me/BeatAnime"
 REQUEST_CHANNEL_URL = "https://t.me/Beat_Hindi_Dubbed"
@@ -264,7 +264,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 > ᴇxᴘʟᴏʀᴇ ᴛʜᴇ ᴏᴘᴛɪᴏɴs ʙᴇʟᴏᴡ ᴛᴏ ɢᴇᴛ sᴛᴀʀᴛᴇᴅ!\\!
         """
         
-        if WELCOME_PHOTO_FILE_ID and WELCOME_PHOTO_FILE_ID != 'https://ibb.co/gFVvgVPF':
+        if WELCOME_PHOTO_FILE_ID and WELCOME_PHOTO_FILE_ID != 'AgACAgUAAxkBAAE7ykdo2ju4-Fn8SPrf1ymrTtVpcpsW8gACN84xG2vZ2FaWyB_pu_-_cgEAAwIAA3kAAzYE':
             await context.bot.send_photo(
                 chat_id=update.effective_chat.id,
                 photo=WELCOME_PHOTO_FILE_ID,
@@ -822,3 +822,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
