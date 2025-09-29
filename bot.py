@@ -40,7 +40,7 @@ ADMIN_CONTACT_USERNAME = "Beat_Anime_Ocean"
 # =================================================================
 
 # User states for conversation
-ADD_CHANNEL_USERNAME, ADD_CHANNEL_TITLE, GENERATE_LINK_CHANNEL_USERNAME = range(3)
+ADD_CHANNEL_USERNAME, ADD_CHANNEL_TITLE, GENERATE_LINK_CHANNEL_USERNAME, PENDING_BROADCAST = range(4)
 user_states = {}
 
 # Initialize databases
@@ -251,7 +251,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("📊 BOT STATS", callback_data="admin_stats")],
             [InlineKeyboardButton("📺 MANAGE FORCE SUB CHANNELS", callback_data="manage_force_sub")],
             [InlineKeyboardButton("🔗 GENERATE CHANNEL LINKS", callback_data="generate_links")],
-            [InlineKeyboardButton("📢 BROADCAST MESSAGE", callback_data="admin_broadcast")],
+            [InlineKeyboardButton("📢 START MEDIA BROADCAST", callback_data="admin_broadcast_start")], # Updated button for new flow
             [InlineKeyboardButton("👥 USER MANAGEMENT", callback_data="user_management")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -370,28 +370,37 @@ async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT
         logger.error(f"Error generating invite link for {channel_username}: {e}")
         await update.message.reply_text("❌ Error generating access link\\\. Make sure the bot is an *Admin* in the target channel and has the right to create invite links\\.", parse_mode='MarkdownV2')
 
-async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        await update.message.reply_text("❌ Admin only command.")
-        return
-    
-    if not context.args:
-        await update.message.reply_text("Usage: /broadcast <message>")
-        return
-    
-    message = ' '.join(context.args)
+# 🆕 REPLACING OLD /broadcast command
+async def broadcast_message_to_all_users(update: Update, context: ContextTypes.DEFAULT_TYPE, message_to_copy):
+    """Internal function to handle the actual broadcast by copying the message."""
     users = get_all_users()
     success_count = 0
+    total_users = len(users)
     
+    # Send a confirmation message immediately
+    await update.message.reply_text(f"🚀 Starting broadcast to {total_users} users. Please wait...")
+
     for user in users:
+        target_chat_id = user[0]
         try:
-            await context.bot.send_message(chat_id=user[0], text=message)
+            # Use copy_message to send media, files, text, and formatted captions
+            await context.bot.copy_message(
+                chat_id=target_chat_id,
+                from_chat_id=message_to_copy.chat_id,
+                message_id=message_to_copy.message_id
+            )
             success_count += 1
         except Exception:
+            # Bot blocked by user or other error
             pass
-        await asyncio.sleep(0.1)
+        # Throttle to respect Telegram's flood limits
+        await asyncio.sleep(0.1) 
     
-    await update.message.reply_text(f"📊 Broadcast sent to {success_count}/{len(users)} users.")
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id, 
+        text=f"✅ **Broadcast complete!**\n\n📊 Sent to {success_count}/{total_users} users.",
+        parse_mode='Markdown'
+    )
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -399,10 +408,36 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     data = query.data
     
+    # Clear admin state if they click any button after initiating a flow
+    if user_id in user_states:
+        current_state = user_states.get(user_id)
+        if current_state in [PENDING_BROADCAST, GENERATE_LINK_CHANNEL_USERNAME, ADD_CHANNEL_TITLE, ADD_CHANNEL_USERNAME] and not data.startswith("admin_"):
+            del user_states[user_id]
+            
     if data == "close_message":
         await query.delete_message()
         return
 
+    # New Admin Broadcast Flow Start
+    if data == "admin_broadcast_start":
+        if not is_admin(user_id):
+            await query.edit_message_text("❌ Admin only.")
+            return
+        
+        user_states[user_id] = PENDING_BROADCAST
+        
+        keyboard = [[InlineKeyboardButton("🔙 CANCEL", callback_data="admin_back")]]
+        
+        await query.edit_message_text(
+            "📢 **MEDIA BROADCAST MODE**\n\n"
+            "Please **forward** the message (image, video, file, sticker, or text with stylish caption) you wish to broadcast *now*.\n\n"
+            "**Note:** Any message you send next will be copied to all users.",
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+    # End New Admin Broadcast Flow Start
+    
     if data == "verify_subscription":
         not_joined_channels = await check_force_subscription(user_id, context)
         
@@ -421,7 +456,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("📊 BOT STATS", callback_data="admin_stats")],
                 [InlineKeyboardButton("📺 MANAGE FORCE SUB CHANNELS", callback_data="manage_force_sub")],
                 [InlineKeyboardButton("🔗 GENERATE CHANNEL LINKS", callback_data="generate_links")],
-                [InlineKeyboardButton("📢 BROADCAST MESSAGE", callback_data="admin_broadcast")],
+                [InlineKeyboardButton("📢 START MEDIA BROADCAST", callback_data="admin_broadcast_start")],
                 [InlineKeyboardButton("👥 USER MANAGEMENT", callback_data="user_management")]
             ]
             text = "👑 **ADMIN PANEL** 👑\n\nWelcome back, Admin!"
@@ -550,8 +585,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             "🔗 **GENERATE CHANNEL LINKS**\n\n"
             "Please send the **username** (starting with @) of the channel "
-            "you want to generate a one-time, expirable link for.\n\n"
-            "**Note:** This channel does *not* need to be in the Force Subscription list.",
+            "you want to generate a one-time, expirable link for.",
             parse_mode='Markdown',
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
@@ -620,7 +654,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✅ **CHANNEL DELETED**\n\n"
             f"Force sub channel `{channel_username}` has been deleted successfully.",
             parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📺 BACK TO CHANNELS", callback_data="manage_force_sub")]])
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📺 MANAGE CHANNELS", callback_data="manage_force_sub")]])
         )
     
     elif data in ["admin_back", "user_back", "channels_back"]:
@@ -629,7 +663,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("📊 BOT STATS", callback_data="admin_stats")],
                 [InlineKeyboardButton("📺 MANAGE FORCE SUB CHANNELS", callback_data="manage_force_sub")],
                 [InlineKeyboardButton("🔗 GENERATE CHANNEL LINKS", callback_data="generate_links")],
-                [InlineKeyboardButton("📢 BROADCAST MESSAGE", callback_data="admin_broadcast")],
+                [InlineKeyboardButton("📢 START MEDIA BROADCAST", callback_data="admin_broadcast_start")],
                 [InlineKeyboardButton("👥 USER MANAGEMENT", callback_data="user_management")]
             ]
             text = "👑 **ADMIN PANEL** 👑\n\nChoose an option:"
@@ -676,9 +710,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         about_me_text = """
 *About Us\\.*
 
-➡️ Made for: @Beat\_Anime\_Ocean
-➡️ Owned by: @Beat\_Anime\_Ocean
-➡️ Developer: @Beat\_Anime\_Ocean
+▣ Made for: @Beat_Anime_Ocean
+▣ Owned by: @Beat_Anime_Ocean
+▣ Developer: @Beat_Anime_Ocean
 
 _Adios \!\!_
 """
@@ -752,23 +786,19 @@ async def show_channel_details(query, context, channel_username):
     
     await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
-async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     if user_id not in user_states:
-        return
-    
+        return # Not in any active admin state
+
     state = user_states[user_id]
     text = update.message.text
     
     if state == ADD_CHANNEL_USERNAME:
+        # (Same as before)
         if not text.startswith('@'):
-            await update.message.reply_text(
-                "❌ Please provide a valid channel username starting with @\n\n"
-                "Example: `@Beat_Anime_Ocean`\n\n"
-                "Try again:",
-                parse_mode='Markdown'
-            )
+            await update.message.reply_text("❌ Please provide a valid channel username starting with @. Try again:", parse_mode='Markdown')
             return
         
         context.user_data['channel_username'] = text
@@ -783,6 +813,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
     
     elif state == ADD_CHANNEL_TITLE:
+        # (Same as before)
         channel_username = context.user_data.get('channel_username')
         
         if add_force_sub_channel(channel_username, text):
@@ -800,11 +831,10 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📺 MANAGE CHANNELS", callback_data="manage_force_sub")]])
             )
         else:
-            await update.message.reply_text(
-                "❌ Error adding channel. It might already exist or there was a database error."
-            )
+            await update.message.reply_text("❌ Error adding channel. It might already exist or there was a database error.")
             
     elif state == GENERATE_LINK_CHANNEL_USERNAME:
+        # (Same as before)
         channel_username = text.strip()
         
         if not channel_username.startswith('@'):
@@ -827,6 +857,25 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             parse_mode='Markdown',
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK TO MENU", callback_data="admin_back")]])
         )
+        
+    # 🆕 NEW: Handle incoming media/text for broadcast
+    elif state == PENDING_BROADCAST:
+        if user_id in user_states:
+            del user_states[user_id] # Clear state
+            await broadcast_message_to_all_users(update, context, update.message)
+            # Send back to admin menu
+            keyboard = [
+                [InlineKeyboardButton("📊 BOT STATS", callback_data="admin_stats")],
+                [InlineKeyboardButton("📺 MANAGE FORCE SUB CHANNELS", callback_data="manage_force_sub")],
+                [InlineKeyboardButton("🔗 GENERATE CHANNEL LINKS", callback_data="generate_links")],
+                [InlineKeyboardButton("📢 START MEDIA BROADCAST", callback_data="admin_broadcast_start")],
+                [InlineKeyboardButton("👥 USER MANAGEMENT", callback_data="user_management")]
+            ]
+            await update.message.reply_text(
+                "✅ Broadcast finished. Returning to Admin Panel:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Exception while handling an update: {context.error}")
@@ -844,9 +893,16 @@ def main():
     
     # Add handlers
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("broadcast", broadcast))
+    # application.add_handler(CommandHandler("broadcast", broadcast)) # REMOVED OLD COMMAND
     application.add_handler(CallbackQueryHandler(button_handler))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
+    
+    # 🆕 NEW HANDLER for all non-command messages from the Admin for state-based processing (including broadcast)
+    admin_filter = filters.User(user_id=ADMIN_ID)
+    application.add_handler(MessageHandler(admin_filter & ~filters.COMMAND, handle_admin_message))
+    
+    # Existing handler for general user text is now only for the Admin state logic above
+    # application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message)) 
+    
     application.add_error_handler(error_handler)
     
     # Add cleanup job (runs every 10 minutes)
