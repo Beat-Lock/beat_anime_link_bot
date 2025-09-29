@@ -23,10 +23,9 @@ LINK_EXPIRY_MINUTES = 5  # Links expire after 5 minutes
 # ⚙️ CUSTOMIZATION CONSTANTS - YOU MUST UPDATE THESE! 
 # =================================================================
 
-# ❗ Channel ID for "Beat anime [Privat]" ❗
-# Note: Negative sign is added automatically when dealing with 'from_chat_id'
+# ❗ Channel ID for "Beat anime [Privat]" 
 WELCOME_SOURCE_CHANNEL = -1002530952988
-# ❗ IMPORTANT: You MUST replace this with the actual Message ID of your welcome post.
+# ❗ Message ID of the welcome post inside that channel
 WELCOME_SOURCE_MESSAGE_ID = 32  
 
 # Old file IDs are now deprecated
@@ -263,13 +262,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=reply_markup
         )
     else:
-        # 🆕 NEW DYNAMIC WELCOME MESSAGE LOGIC
+        # 🆕 NEW DYNAMIC WELCOME MESSAGE LOGIC with 2-COLUMN LAYOUT
         keyboard = [
-            [InlineKeyboardButton("ANIME CHANNEL", url=PUBLIC_ANIME_CHANNEL_URL)], 
-            [InlineKeyboardButton("REQUEST ANIME CHANNEL", url=REQUEST_CHANNEL_URL)], 
-            [InlineKeyboardButton("CONTACT ADMIN", url=f"https://t.me/{ADMIN_CONTACT_USERNAME}")],
-            [InlineKeyboardButton("ABOUT ME", callback_data="about_bot")],
-            [InlineKeyboardButton("CLOSE", callback_data="close_message")]
+            # Row 1: Two buttons side-by-side
+            [
+                InlineKeyboardButton("ANIME CHANNEL", url=PUBLIC_ANIME_CHANNEL_URL),
+                InlineKeyboardButton("REQUEST ANIME CHANNEL", url=REQUEST_CHANNEL_URL)
+            ],
+            # Row 2: Two buttons side-by-side
+            [
+                InlineKeyboardButton("CONTACT ADMIN", url=f"https://t.me/{ADMIN_CONTACT_USERNAME}"),
+                InlineKeyboardButton("ABOUT ME", callback_data="about_bot")
+            ],
+            # Row 3: Single button (CLOSE)
+            [
+                InlineKeyboardButton("CLOSE", callback_data="close_message")
+            ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -419,13 +427,22 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text = "👑 **ADMIN PANEL** 👑\n\nWelcome back, Admin!"
             await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
         else:
-            # 🆕 Use the dynamic welcome message for verified users
+            # 🆕 Use the dynamic welcome message for verified users (Updated Layout)
             keyboard = [
-                [InlineKeyboardButton("ANIME CHANNEL", url=PUBLIC_ANIME_CHANNEL_URL)], 
-                [InlineKeyboardButton("REQUEST ANIME CHANNEL", url=REQUEST_CHANNEL_URL)], 
-                [InlineKeyboardButton("CONTACT ADMIN", url=f"https://t.me/{ADMIN_CONTACT_USERNAME}")],
-                [InlineKeyboardButton("ABOUT ME", callback_data="about_bot")],
-                [InlineKeyboardButton("CLOSE", callback_data="close_message")]
+                # Row 1: Two buttons side-by-side
+                [
+                    InlineKeyboardButton("ANIME CHANNEL", url=PUBLIC_ANIME_CHANNEL_URL),
+                    InlineKeyboardButton("REQUEST ANIME CHANNEL", url=REQUEST_CHANNEL_URL)
+                ],
+                # Row 2: Two buttons side-by-side
+                [
+                    InlineKeyboardButton("CONTACT ADMIN", url=f"https://t.me/{ADMIN_CONTACT_USERNAME}"),
+                    InlineKeyboardButton("ABOUT ME", callback_data="about_bot")
+                ],
+                # Row 3: Single button (CLOSE)
+                [
+                    InlineKeyboardButton("CLOSE", callback_data="close_message")
+                ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -618,13 +635,22 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text = "👑 **ADMIN PANEL** 👑\n\nChoose an option:"
             await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
         else:
-            # 🆕 NEW DYNAMIC WELCOME MESSAGE LOGIC for user_back
+            # 🆕 NEW DYNAMIC WELCOME MESSAGE LOGIC for user_back (Updated Layout)
             keyboard = [
-                [InlineKeyboardButton("ANIME CHANNEL", url=PUBLIC_ANIME_CHANNEL_URL)], 
-                [InlineKeyboardButton("REQUEST ANIME CHANNEL", url=REQUEST_CHANNEL_URL)], 
-                [InlineKeyboardButton("CONTACT ADMIN", url=f"https://t.me/{ADMIN_CONTACT_USERNAME}")],
-                [InlineKeyboardButton("ABOUT ME", callback_data="about_bot")],
-                [InlineKeyboardButton("CLOSE", callback_data="close_message")]
+                # Row 1: Two buttons side-by-side
+                [
+                    InlineKeyboardButton("ANIME CHANNEL", url=PUBLIC_ANIME_CHANNEL_URL),
+                    InlineKeyboardButton("REQUEST ANIME CHANNEL", url=REQUEST_CHANNEL_URL)
+                ],
+                # Row 2: Two buttons side-by-side
+                [
+                    InlineKeyboardButton("CONTACT ADMIN", url=f"https://t.me/{ADMIN_CONTACT_USERNAME}"),
+                    InlineKeyboardButton("ABOUT ME", callback_data="about_bot")
+                ],
+                # Row 3: Single button (CLOSE)
+                [
+                    InlineKeyboardButton("CLOSE", callback_data="close_message")
+                ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -650,16 +676,23 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         about_me_text = """
 *About Us\\.*
 
-➡️ Made for: @Beat_Anime_Ocean
-➡️ Owned by: @Beat_Anime_Ocean
-➡️ Developer: @Beat_Anime_Ocean
+➡️ Made for: @Beat\_Anime\_Ocean
+➡️ Owned by: @Beat\_Anime\_Ocean
+➡️ Developer: @Beat\_Anime\_Ocean
 
 _Adios \!\!_
 """
         keyboard = [[InlineKeyboardButton("🔙 BACK", callback_data="user_back")]] 
         
-        await query.edit_message_text(
-            about_me_text,
+        # FIX: Delete and Send New Message to avoid 'Message can't be edited' error
+        try:
+            await query.delete_message()
+        except Exception:
+            logger.warning("Could not delete message during 'about_bot' switch, proceeding to send new message.")
+
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text=about_me_text,
             parse_mode='MarkdownV2',
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
