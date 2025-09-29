@@ -7,6 +7,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 import asyncio
 
+# Configure logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -16,15 +17,21 @@ logger = logging.getLogger(__name__)
 # Bot configuration
 BOT_TOKEN = '7877393813:AAGKvpRBlYWwO70B9pQpD29BhYCXwiZGngw'
 ADMIN_ID = 829342319
-LINK_EXPIRY_MINUTES = 5
+LINK_EXPIRY_MINUTES = 5  # Links expire after 5 minutes
 
 # =================================================================
 # ⚙️ CUSTOMIZATION CONSTANTS - YOU MUST UPDATE THESE! 
 # =================================================================
 
-# The correct file ID you retrieved
-WELCOME_PHOTO_FILE_ID = 'AgACAgUAAxkBAAE7ykdo2ju4-Fn8SPrf1ymrTtVpcpsW8gACN84xG2vZ2FaWyB_pu_-_cgEAAwIAA3kAAzYE'
-ABOUT_ME_PHOTO_FILE_ID = 'AgACAgUAAxkBAAE7ykdo2ju4-Fn8SPrf1ymrTtVpcpsW8gACN84xG2vZ2FaWyB_pu_-_cgEAAwIAA3kAAzYE'
+# ❗ Channel ID for "Beat anime [Privat]" ❗
+# Note: Negative sign is added automatically when dealing with 'from_chat_id'
+WELCOME_SOURCE_CHANNEL = -1002530952988
+# ❗ IMPORTANT: You MUST replace this with the actual Message ID of your welcome post.
+WELCOME_SOURCE_MESSAGE_ID = 32  
+
+# Old file IDs are now deprecated
+WELCOME_PHOTO_FILE_ID = '' 
+ABOUT_ME_PHOTO_FILE_ID = '' 
 
 PUBLIC_ANIME_CHANNEL_URL = "https://t.me/BeatAnime"
 REQUEST_CHANNEL_URL = "https://t.me/Beat_Hindi_Dubbed"
@@ -33,13 +40,16 @@ ADMIN_CONTACT_USERNAME = "Beat_Anime_Ocean"
 
 # =================================================================
 
+# User states for conversation
 ADD_CHANNEL_USERNAME, ADD_CHANNEL_TITLE, GENERATE_LINK_CHANNEL_USERNAME = range(3)
 user_states = {}
 
+# Initialize databases
 def init_db():
     conn = sqlite3.connect('bot_data.db')
     cursor = conn.cursor()
     
+    # Users table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
@@ -50,6 +60,7 @@ def init_db():
         )
     ''')
     
+    # Force subscription channels table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS force_sub_channels (
             channel_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,6 +71,7 @@ def init_db():
         )
     ''')
     
+    # Generated links table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS generated_links (
             link_id TEXT PRIMARY KEY,
@@ -110,6 +122,7 @@ def add_force_sub_channel(channel_username, channel_title):
         conn.commit()
         return True
     except Exception as e:
+        logger.error(f"DB Error adding channel: {e}")
         return False
     finally:
         conn.close()
@@ -209,6 +222,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_channel_link_deep(update, context, link_id)
         return
     
+    # --- Force Subscription Check (Admin check inside) ---
     if not is_admin(user.id):
         not_joined_channels = await check_force_subscription(user.id, context)
         
@@ -232,6 +246,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
     
+    # --- Main Menu Display ---
     if is_admin(user.id):
         keyboard = [
             [InlineKeyboardButton("📊 BOT STATS", callback_data="admin_stats")],
@@ -248,6 +263,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=reply_markup
         )
     else:
+        # 🆕 NEW DYNAMIC WELCOME MESSAGE LOGIC
         keyboard = [
             [InlineKeyboardButton("ANIME CHANNEL", url=PUBLIC_ANIME_CHANNEL_URL)], 
             [InlineKeyboardButton("REQUEST ANIME CHANNEL", url=REQUEST_CHANNEL_URL)], 
@@ -256,26 +272,24 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("CLOSE", callback_data="close_message")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        # Welcome message with bold and quoted style (MarkdownV2) - FIX: Added escapes for . and !
-        welcome_text = """
-> *ᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ ᴀᴅᴠᴀɴᴄᴇᴅ ʟɪɴᴋs sʜᴀʀɪɴɢ ʙoᴛ\.🌟*
 
-> ᴜsᴇ ᴛʜɪs ʙᴏᴛ ᴛᴏ sᴀғᴇʟʏ sʜᴀʀᴇ ᴄᴏɴᴛᴇɴᴛ ᴡɪᴛʜᴏᴜᴛ ʀɪsᴋɪɴɢ ᴄᴏᴘʏʀɪɢʜᴛ ᴛᴀᴋᴇᴅᴏᴡɴs\.\
-> ᴇxᴘʟᴏʀᴇ ᴛʜᴇ ᴏᴘᴛɪᴏɴs ʙᴇʟᴏᴡ ᴛᴏ ɢᴇᴛ sᴛᴀʀᴛᴇᴅ\.\!
-        """
-        
-        # FIX: Simplified photo check logic to correctly send the photo
-        if WELCOME_PHOTO_FILE_ID:
-            await context.bot.send_photo(
+        try:
+            # Copy the entire message (media + text) from the source channel
+            await context.bot.copy_message(
                 chat_id=update.effective_chat.id,
-                photo=WELCOME_PHOTO_FILE_ID,
-                caption=welcome_text,
-                parse_mode='MarkdownV2',
-                reply_markup=reply_markup
+                from_chat_id=WELCOME_SOURCE_CHANNEL,
+                message_id=WELCOME_SOURCE_MESSAGE_ID,
+                reply_markup=reply_markup # Attach the buttons to the copied message
             )
-        else:
-            await update.message.reply_text(welcome_text, parse_mode='MarkdownV2', reply_markup=reply_markup)
+        except Exception as e:
+            logger.error(f"Error copying welcome message from channel: {e}")
+            # Fallback text if the copy fails (using MarkdownV2 for consistency)
+            fallback_text = (
+                "⚠️ *Error loading welcome message\\.*\n\n"
+                "Please check the `WELCOME_SOURCE_CHANNEL` and `WELCOME_SOURCE_MESSAGE_ID` constants\\."
+            )
+            await update.message.reply_text(fallback_text, parse_mode='MarkdownV2', reply_markup=reply_markup)
+
 
 async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT_TYPE, link_id):
     link_info = get_link_info(link_id)
@@ -328,7 +342,7 @@ async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT
         
         mark_link_used(link_id)
         
-        # FIX: Corrected MarkdownV2 escaping in f-string (using \\!)
+        # MarkdownV2 success message
         success_message = (
             f"🎉 *Access Granted\\!* 🎉\n\n"
             f"*Channel:* {chat.title}\n"
@@ -338,18 +352,11 @@ async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT
             f"_Enjoy the content\\! 🍿_"
         )
         
-        # FIX: Simplified photo check logic
-        if WELCOME_PHOTO_FILE_ID:
-            await update.message.reply_photo(
-                photo=WELCOME_PHOTO_FILE_ID,
-                caption=success_message,
-                parse_mode='MarkdownV2'
-            )
-        else:
-            await update.message.reply_text(
-                success_message,
-                parse_mode='MarkdownV2'
-            )
+        # Simple text reply for the link access (no photo needed here)
+        await update.message.reply_text(
+            success_message,
+            parse_mode='MarkdownV2'
+        )
         
     except Exception as e:
         logger.error(f"Error generating invite link for {channel_username}: {e}")
@@ -410,7 +417,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("👥 USER MANAGEMENT", callback_data="user_management")]
             ]
             text = "👑 **ADMIN PANEL** 👑\n\nWelcome back, Admin!"
+            await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
         else:
+            # 🆕 Use the dynamic welcome message for verified users
             keyboard = [
                 [InlineKeyboardButton("ANIME CHANNEL", url=PUBLIC_ANIME_CHANNEL_URL)], 
                 [InlineKeyboardButton("REQUEST ANIME CHANNEL", url=REQUEST_CHANNEL_URL)], 
@@ -418,10 +427,25 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("ABOUT ME", callback_data="about_bot")],
                 [InlineKeyboardButton("CLOSE", callback_data="close_message")]
             ]
-            text = "✅ **Subscription verified!**\n\nWelcome to the bot! Explore the options below:"
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.delete_message() # Delete the verification message
+            
+            try:
+                # Copy the entire message (media + text) from the source channel
+                await context.bot.copy_message(
+                    chat_id=query.message.chat_id,
+                    from_chat_id=WELCOME_SOURCE_CHANNEL,
+                    message_id=WELCOME_SOURCE_MESSAGE_ID,
+                    reply_markup=reply_markup # Attach the buttons
+                )
+            except Exception as e:
+                logger.error(f"Error copying verified welcome message: {e}")
+                # Fallback text
+                fallback_text = "✅ **Subscription verified!**\n\nWelcome to the bot! Explore the options below:"
+                await context.bot.send_message(query.message.chat_id, fallback_text, parse_mode='Markdown', reply_markup=reply_markup)
         
-        await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
-    
+        
     elif data.startswith("verify_deep_"):
         link_id = data[12:]
         not_joined_channels = await check_force_subscription(user_id, context)
@@ -453,7 +477,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             mark_link_used(link_id)
             
-            # FIX: Corrected MarkdownV2 escaping in f-string (using \\!)
             success_message = (
                 f"🎉 *Access Granted\\!* 🎉\n\n"
                 f"*Channel:* {chat.title}\n"
@@ -463,21 +486,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"_Enjoy the content\\! 🍿_"
             )
 
-            # FIX: Simplified photo check logic
-            if WELCOME_PHOTO_FILE_ID:
-                await query.delete_message() 
-                
-                await context.bot.send_photo(
-                    chat_id=query.message.chat_id,
-                    photo=WELCOME_PHOTO_FILE_ID,
-                    caption=success_message,
-                    parse_mode='MarkdownV2'
-                )
-            else:
-                await query.edit_message_text(
-                    success_message,
-                    parse_mode='MarkdownV2'
-                )
+            await query.delete_message() 
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text=success_message,
+                parse_mode='MarkdownV2'
+            )
             
         except Exception as e:
             await query.edit_message_text("❌ Error generating access link\\\. Make sure the bot is an *Admin* in the target channel and has the right to create invite links\\.", parse_mode='MarkdownV2')
@@ -604,6 +618,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text = "👑 **ADMIN PANEL** 👑\n\nChoose an option:"
             await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
         else:
+            # 🆕 NEW DYNAMIC WELCOME MESSAGE LOGIC for user_back
             keyboard = [
                 [InlineKeyboardButton("ANIME CHANNEL", url=PUBLIC_ANIME_CHANNEL_URL)], 
                 [InlineKeyboardButton("REQUEST ANIME CHANNEL", url=REQUEST_CHANNEL_URL)], 
@@ -611,39 +626,29 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("ABOUT ME", callback_data="about_bot")],
                 [InlineKeyboardButton("CLOSE", callback_data="close_message")]
             ]
-            
-            # Welcome message with bold and quoted style (MarkdownV2) - FIX: Added escape for !
-            welcome_text = """
-> *🌟 MAIN MENU 🌟*
-
-> EXPLORE THE OPTIONS BELOW TO GET STARTED\.\!
-            """
+            reply_markup = InlineKeyboardMarkup(keyboard)
             
             await query.delete_message()
             
-            # FIX: Simplified photo check logic
-            if WELCOME_PHOTO_FILE_ID:
-                await context.bot.send_photo(
+            try:
+                # Copy the entire message (media + text) from the source channel
+                await context.bot.copy_message(
                     chat_id=query.message.chat_id,
-                    photo=WELCOME_PHOTO_FILE_ID,
-                    caption=welcome_text,
-                    parse_mode='MarkdownV2',
-                    reply_markup=InlineKeyboardMarkup(keyboard)
+                    from_chat_id=WELCOME_SOURCE_CHANNEL,
+                    message_id=WELCOME_SOURCE_MESSAGE_ID,
+                    reply_markup=reply_markup # Attach the buttons
                 )
-            else:
-                await context.bot.send_message(
-                    chat_id=query.message.chat_id,
-                    text="🌟 **MAIN MENU** 🌟\n\nChoose an option:",
-                    parse_mode='Markdown',
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+            except Exception as e:
+                logger.error(f"Error copying 'user_back' message: {e}")
+                # Fallback text
+                fallback_text = "🌟 **MAIN MENU** 🌟\n\nChoose an option:"
+                await context.bot.send_message(query.message.chat_id, fallback_text, parse_mode='Markdown', reply_markup=reply_markup)
 
     
     elif data == "about_bot":
-        # FIX: Corrected MarkdownV2 escaping for periods and underscores
-        if ABOUT_ME_PHOTO_FILE_ID:
-            about_me_text = """
-*About Us\.\*
+        # Hardcoded message for simplicity 
+        about_me_text = """
+*About Us\\.*
 
 ➡️ Made for: @Beat_Anime_Ocean
 ➡️ Owned by: @Beat_Anime_Ocean
@@ -651,27 +656,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 _Adios \!\!_
 """
-            await query.delete_message()
-            
-            keyboard = [[InlineKeyboardButton("❌ CLOSE", callback_data="close_message")]]
-            
-            await context.bot.send_photo(
-                chat_id=query.message.chat_id,
-                photo=ABOUT_ME_PHOTO_FILE_ID,
-                caption=about_me_text,
-                parse_mode='MarkdownV2',
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-        else:
-            await query.edit_message_text(
-                "**ABOUT THIS BOT**\n\n"
-                "**Advanced Links Sharing Bot** \n\n"
-                "A hub❤️ for World of Anime!",
-                parse_mode='Markdown',
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔙 BACK", callback_data="user_back")]
-                ])
-            )
+        keyboard = [[InlineKeyboardButton("🔙 BACK", callback_data="user_back")]] 
+        
+        await query.edit_message_text(
+            about_me_text,
+            parse_mode='MarkdownV2',
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
 
 async def show_force_sub_management(query, context):
     user_id = query.from_user.id
