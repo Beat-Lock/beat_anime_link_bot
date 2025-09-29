@@ -763,10 +763,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         about_me_text = """
 *About Us\\.*
 
-*▣ Made for:  @Beat_Anime_Ocean\\*
-*▣ Owned by:  @Beat_Anime_Ocean\\*
-*▣ Developer:  @Beat_Anime_Ocean\\*
-
+▣**Made for: @Beat\\_Anime\\_Ocean**
+▣** Owned by: @Beat\\_Anime\\_Ocean**
+▣** Developer:  @Beat\\_Anime\\_Ocean**
 _Adios \!\!_
 """
         keyboard = [[InlineKeyboardButton("🔙 BACK", callback_data="user_back")]] 
@@ -966,3 +965,4 @@ if __name__ == '__main__':
         os.environ['PORT'] = str(8080)
     
     main()
+
