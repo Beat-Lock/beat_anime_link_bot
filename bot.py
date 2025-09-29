@@ -686,8 +686,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
         await context.bot.send_message(
             chat_id=query.message.chat_id,
-            text=r"📢 **MEDIA BROADCAST MODE**\n\n"
-                 r"Please **forward** the message (image, video, file, sticker, or text with stylish caption) you wish to broadcast *now*\.\n\n"
+            text=r"📢 **MEDIA BROADCAST MODE**" + "\n\n" +
+                 r"Please **forward** the message \(image, video, file, sticker, or text with stylish caption\) you wish to broadcast *now*\." + "\n\n" +
                  r"**Note:** Any message you send next will be copied to all users\.",
             parse_mode='MarkdownV2',
             reply_markup=InlineKeyboardMarkup(keyboard)
@@ -870,8 +870,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
         await context.bot.send_message(
             chat_id=query.message.chat_id,
-            text=r"🔗 **GENERATE CHANNEL LINKS**\n\n"
-                 r"Please send the **username** (starting with @) of the channel "
+            text=r"🔗 **GENERATE CHANNEL LINKS**" + "\n\n" +
+                 r"Please send the **username** \(starting with @\) of the channel " +
                  r"you want to generate a one\-time, expirable link for\.",
             parse_mode='MarkdownV2',
             reply_markup=InlineKeyboardMarkup(keyboard)
@@ -893,9 +893,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
         await context.bot.send_message(
             chat_id=query.message.chat_id,
-            text=r"📺 **ADD FORCE SUBSCRIPTION CHANNEL**\n\n"
-                 r"Please send me the channel username (starting with @):\n\n"
-                 r"Example: `@Beat_Anime_Ocean`",
+            text=r"📺 **ADD FORCE SUBSCRIPTION CHANNEL**" + "\n\n" +
+                 r"Please send me the channel username \(starting with @\)\:" + "\n\n" +
+                 r"Example\: `@Beat_Anime_Ocean`",
             parse_mode='MarkdownV2',
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 CANCEL", callback_data="manage_force_sub")]])
         )
@@ -1044,9 +1044,9 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
         user_states[user_id] = ADD_CHANNEL_TITLE
         
         await update.message.reply_text(
-            r"📝 **STEP 2: Channel Title**\n\n"
-            r"Now please send me the display title for this channel\:\n\n"
-            r"Example: `Anime Ocean Channel`",
+            r"📝 **STEP 2\: Channel Title**" + "\n\n" +
+            r"Now please send me the display title for this channel\:" + "\n\n" +
+            r"Example\: `Anime Ocean Channel`",
             parse_mode='MarkdownV2',
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 CANCEL", callback_data="manage_force_sub")]])
         )
