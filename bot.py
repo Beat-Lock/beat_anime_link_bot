@@ -35,7 +35,7 @@ WELCOME_SOURCE_CHANNEL = -1002530952988
 WELCOME_SOURCE_MESSAGE_ID = 32  
 
 PUBLIC_ANIME_CHANNEL_URL = "https://t.me/BeatAnime"
-REQUEST_CHANNEL_URL = "https://tme/Beat_Hindi_Dubbed"
+REQUEST_CHANNEL_URL = "https://t.me/Beat_Hindi_Dubbed"
 
 ADMIN_CONTACT_USERNAME = "Beat_Anime_Ocean" 
 
@@ -1051,3 +1051,4 @@ if __name__ == '__main__':
         os.environ['PORT'] = str(8080)
     
     main()
+
