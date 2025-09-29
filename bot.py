@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 import asyncio
-import os # Ensure os is imported for the temporary fix
+import os 
 
 # Configure logging
 logging.basicConfig(
@@ -229,8 +229,16 @@ def is_admin(user_id):
 
 # --- HELPER FUNCTIONS FOR ADMIN MENU NAVIGATION ---
 
-async def send_admin_menu(chat_id, context):
+# FIX: Added query=None and message deletion logic
+async def send_admin_menu(chat_id, context, query=None):
     """Sends the admin main menu as a new message."""
+    
+    if query:
+        try:
+            await query.delete_message()
+        except Exception:
+            pass
+            
     keyboard = [
         [InlineKeyboardButton("📊 BOT STATS", callback_data="admin_stats")],
         [InlineKeyboardButton("📺 MANAGE FORCE SUB CHANNELS", callback_data="manage_force_sub")],
@@ -249,8 +257,15 @@ async def send_admin_menu(chat_id, context):
         reply_markup=reply_markup
     )
 
+# FIX: Added message deletion logic
 async def send_admin_stats(query, context):
     """Calculates and sends the bot stats as a new message."""
+    
+    try:
+        await query.delete_message()
+    except Exception:
+        pass
+        
     user_count = get_user_count()
     channel_count = get_force_sub_channel_count()
     
@@ -297,7 +312,6 @@ async def show_force_sub_management(query, context):
     # If channels exist, add specific management buttons
     if channels:
         # Corrected List Comprehension: Unpacks channel_username and channel_title directly
-        # THIS IS THE FINAL FIX FOR THE SYNTAX/LOGIC ERROR
         channel_buttons = [
             InlineKeyboardButton(channel_title, callback_data=f"channel_{channel_username}") 
             for channel_username, channel_title in channels
@@ -364,9 +378,17 @@ _Choose an action below\._
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-
+# FIX: Added message deletion logic for initial click
 async def send_user_management(query, context, offset=0):
     """Displays a paginated list of users."""
+    
+    # NEW FIX: Delete old message before sending new one, ONLY on initial click
+    if not query.data.startswith("user_page_"):
+        try:
+            await query.delete_message()
+        except Exception:
+            pass
+            
     user_count = get_user_count()
     users = get_all_users(limit=10, offset=offset)
     
@@ -420,7 +442,7 @@ async def send_user_management(query, context, offset=0):
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     else:
-         # Initial click from Admin Menu (Delete/Send logic is handled in button_handler)
+         # Initial click from Admin Menu (Now deletion is handled above)
         await context.bot.send_message(
             chat_id=query.message.chat_id, 
             text=stats_text, 
@@ -777,11 +799,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(r"❌ Admin only\.", parse_mode='MarkdownV2')
             return
         
-        # FIX: Delete and Send New Message
-        try:
-            await query.delete_message()
-        except Exception:
-            pass
+        # FIX: Removed deletion logic. Handled in send_admin_stats.
             
         await send_admin_stats(query, context)
         return
@@ -792,11 +810,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(r"❌ Admin only\.", parse_mode='MarkdownV2')
             return
         
-        # FIX: Delete and Send New Message
-        try:
-            await query.delete_message()
-        except Exception:
-            pass
+        # FIX: Removed deletion logic. Handled in send_user_management.
             
         await send_user_management(query, context, offset=0)
         return
@@ -832,7 +846,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         keyboard = [[InlineKeyboardButton("🔙 CANCEL", callback_data="admin_back")]]
         
-        # FIX: Delete and Send New Message
+        # FIX: Delete and Send New Message (Needed here as it's not calling a menu helper)
         try:
             await query.delete_message()
         except Exception:
@@ -948,12 +962,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # --- BACK BUTTONS ---
     elif data in ["admin_back", "user_back", "channels_back"]:
         if is_admin(user_id):
-            try:
-                await query.delete_message()
-            except Exception:
-                pass
+            # FIX: Removed deletion logic. Handled in send_admin_menu.
             
-            await send_admin_menu(query.message.chat_id, context)
+            await send_admin_menu(query.message.chat_id, context, query) # <-- PASS QUERY
         else:
             keyboard = [
                 [
@@ -1153,4 +1164,3 @@ if __name__ == '__main__':
         os.environ['PORT'] = str(8080)
     
     main()
-
