@@ -15,7 +15,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Bot configuration
-# Ensure BOT_TOKEN and ADMIN_ID are correct
 BOT_TOKEN = '7877393813:AAGKvpRBlYWwO70B9pQpD29BhYCXwiZGngw'
 ADMIN_ID = 829342319
 LINK_EXPIRY_MINUTES = 5  # Links expire after 5 minutes
@@ -30,13 +29,13 @@ WEBHOOK_URL = os.environ.get('RENDER_EXTERNAL_URL', '').rstrip('/') + '/'
 
 # Channel ID for the welcome message source
 WELCOME_SOURCE_CHANNEL = -1002530952988
-# Message ID of the welcome post inside that channel (From your screenshot)
+# Message ID of the welcome post inside that channel
 WELCOME_SOURCE_MESSAGE_ID = 32  
 
 PUBLIC_ANIME_CHANNEL_URL = "https://t.me/BeatAnime"
 REQUEST_CHANNEL_URL = "https://t.me/Beat_Hindi_Dubbed"
 
-ADMIN_CONTACT_USERNAME = "@Beat_Anime_Ocean" 
+ADMIN_CONTACT_USERNAME = "Beat_Anime_Ocean" 
 
 # =================================================================
 
@@ -111,6 +110,14 @@ def get_user_count():
     conn.close()
     return count
 
+def get_force_sub_channel_count():
+    conn = sqlite3.connect('bot_data.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT COUNT(*) FROM force_sub_channels WHERE is_active = 1')
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
+
 def add_force_sub_channel(channel_username, channel_title):
     conn = sqlite3.connect('bot_data.db')
     cursor = conn.cursor()
@@ -134,14 +141,6 @@ def get_all_force_sub_channels():
     channels = cursor.fetchall()
     conn.close()
     return channels
-
-def get_force_sub_channel_count():
-    conn = sqlite3.connect('bot_data.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT COUNT(*) FROM force_sub_channels WHERE is_active = 1')
-    count = cursor.fetchone()[0]
-    conn.close()
-    return count
 
 def get_force_sub_channel_info(channel_username):
     conn = sqlite3.connect('bot_data.db')
@@ -213,6 +212,55 @@ async def check_force_subscription(user_id, context):
 def is_admin(user_id):
     return user_id == ADMIN_ID
 
+# --- NEW HELPER FUNCTIONS FOR ADMIN MENU ---
+
+async def send_admin_menu(chat_id, context):
+    """Sends the admin main menu as a new message."""
+    keyboard = [
+        [InlineKeyboardButton("📊 BOT STATS", callback_data="admin_stats")],
+        [InlineKeyboardButton("📺 MANAGE FORCE SUB CHANNELS", callback_data="manage_force_sub")],
+        [InlineKeyboardButton("🔗 GENERATE CHANNEL LINKS", callback_data="generate_links")],
+        [InlineKeyboardButton("📢 START MEDIA BROADCAST", callback_data="admin_broadcast_start")],
+        [InlineKeyboardButton("👥 USER MANAGEMENT", callback_data="user_management")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    text = "👑 **ADMIN PANEL** 👑\n\nWelcome back, Admin\! Choose an option below\\:"
+    
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=text,
+        parse_mode='MarkdownV2',
+        reply_markup=reply_markup
+    )
+
+async def send_admin_stats(query, context):
+    """Calculates and sends the bot stats as a new message."""
+    user_count = get_user_count()
+    channel_count = get_force_sub_channel_count()
+    
+    stats_text = f"""
+📊 **BOT STATISTICS** 📊
+
+👥 **Total Users:** {user_count}
+📺 **Force Sub Channels:** {channel_count}
+🔗 **Link Expiry:** {LINK_EXPIRY_MINUTES} minutes
+
+*Last Cleanup:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+    """
+    
+    keyboard = [[InlineKeyboardButton("🔄 REFRESH", callback_data="admin_stats")],
+                [InlineKeyboardButton("🔙 BACK", callback_data="admin_back")]]
+    
+    await context.bot.send_message(
+        chat_id=query.message.chat_id, 
+        text=stats_text, 
+        parse_mode='MarkdownV2', 
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+# --- END NEW HELPER FUNCTIONS ---
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     add_user(user.id, user.username, user.first_name, user.last_name)
@@ -235,7 +283,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            # Use MarkdownV2 for consistency and to avoid conflicting with the old Markdown parser
             channels_text = "\n".join([f"• {title} (`{username}`)" for username, title in not_joined_channels])
             
             await update.message.reply_text(
@@ -249,34 +296,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # --- Main Menu Display ---
     if is_admin(user.id):
-        keyboard = [
-            [InlineKeyboardButton("📊 BOT STATS", callback_data="admin_stats")],
-            [InlineKeyboardButton("📺 MANAGE FORCE SUB CHANNELS", callback_data="manage_force_sub")],
-            [InlineKeyboardButton("🔗 GENERATE CHANNEL LINKS", callback_data="generate_links")],
-            [InlineKeyboardButton("📢 START MEDIA BROADCAST", callback_data="admin_broadcast_start")],
-            [InlineKeyboardButton("👥 USER MANAGEMENT", callback_data="user_management")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(
-            "▣ **ADMIN PANEL** ▣ \n\n"
-            "Welcome back, Admin\! Choose an option below:",
-            parse_mode='MarkdownV2',
-            reply_markup=reply_markup
-        )
+        await send_admin_menu(update.effective_chat.id, context)
     else:
-        # 🆕 DYNAMIC WELCOME MESSAGE LOGIC 
+        # DYNAMIC WELCOME MESSAGE LOGIC with 2-COLUMN LAYOUT
         keyboard = [
-            # Row 1: Two buttons side-by-side
             [
                 InlineKeyboardButton("ANIME CHANNEL", url=PUBLIC_ANIME_CHANNEL_URL),
                 InlineKeyboardButton("REQUEST ANIME CHANNEL", url=REQUEST_CHANNEL_URL)
             ],
-            # Row 2: Two buttons side-by-side
             [
                 InlineKeyboardButton("CONTACT ADMIN", url=f"https://t.me/{ADMIN_CONTACT_USERNAME}"),
                 InlineKeyboardButton("ABOUT ME", callback_data="about_bot")
             ],
-            # Row 3: Single button (CLOSE)
             [
                 InlineKeyboardButton("CLOSE", callback_data="close_message")
             ]
@@ -416,7 +447,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             del user_states[user_id]
             
     if data == "close_message":
-        # Safe deletion check to prevent 'Message can't be edited' or 'No text in the message to edit' errors
+        # Safe deletion check
         try:
             await query.delete_message()
         except Exception as e:
@@ -433,10 +464,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         keyboard = [[InlineKeyboardButton("🔙 CANCEL", callback_data="admin_back")]]
         
-        await query.edit_message_text(
-            "📢 **MEDIA BROADCAST MODE**\n\n"
-            "Please **forward** the message \\(image, video, file, sticker, or text with stylish caption\\) you wish to broadcast *now*\\.\n\n"
-            "**Note:** Any message you send next will be copied to all users\\.",
+        # Must delete/send new message if original message contains media (from start)
+        try:
+            await query.delete_message()
+        except Exception:
+            pass
+            
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text="📢 **MEDIA BROADCAST MODE**\n\n"
+                 "Please **forward** the message \\(image, video, file, sticker, or text with stylish caption\\) you wish to broadcast *now*\\.\n\n"
+                 "**Note:** Any message you send next will be copied to all users\\.",
             parse_mode='MarkdownV2',
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
@@ -456,18 +494,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
-        if is_admin(user_id):
-            keyboard = [
-                [InlineKeyboardButton("📊 BOT STATS", callback_data="admin_stats")],
-                [InlineKeyboardButton("📺 MANAGE FORCE SUB CHANNELS", callback_data="manage_force_sub")],
-                [InlineKeyboardButton("🔗 GENERATE CHANNEL LINKS", callback_data="generate_links")],
-                [InlineKeyboardButton("📢 START MEDIA BROADCAST", callback_data="admin_broadcast_start")],
-                [InlineKeyboardButton("👥 USER MANAGEMENT", callback_data="user_management")]
-            ]
-            text = "👑 **ADMIN PANEL** 👑\n\nWelcome back, Admin\\!"
-            await query.edit_message_text(text, parse_mode='MarkdownV2', reply_markup=InlineKeyboardMarkup(keyboard))
+        if is_admin(user.id):
+            # Admin verified -> Show Admin Menu (Delete/Send logic is handled in send_admin_menu)
+            try:
+                await query.delete_message()
+            except Exception:
+                pass
+            await send_admin_menu(query.message.chat_id, context)
         else:
-            # Use the dynamic welcome message for verified users (Updated Layout)
+            # User verified -> Show Welcome Message
             keyboard = [
                 [
                     InlineKeyboardButton("ANIME CHANNEL", url=PUBLIC_ANIME_CHANNEL_URL),
@@ -483,9 +518,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            # Delete the verification message before sending the welcome message
             try:
-                await query.delete_message() 
+                await query.delete_message() # Delete the verification message
             except Exception:
                 pass
             
@@ -563,24 +597,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("❌ Admin only\\.", parse_mode='MarkdownV2')
             return
         
-        user_count = get_user_count()
-        channel_count = get_force_sub_channel_count()
+        # --- FIX: Delete and Send New Message ---
+        try:
+            await query.delete_message()
+        except Exception:
+            pass
+            
+        await send_admin_stats(query, context)
+        # --- END FIX ---
         
-        stats_text = f"""
-📊 **BOT STATISTICS** 📊
-
-👥 **Total Users:** {user_count}
-📺 **Force Sub Channels:** {channel_count}
-🔗 **Link Expiry:** {LINK_EXPIRY_MINUTES} minutes
-
-*Last Cleanup:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-        """
-        
-        keyboard = [[InlineKeyboardButton("🔄 REFRESH", callback_data="admin_stats")],
-                    [InlineKeyboardButton("🔙 BACK", callback_data="admin_back")]]
-        await query.edit_message_text(stats_text, parse_mode='MarkdownV2', reply_markup=InlineKeyboardMarkup(keyboard))
+        return
     
     elif data == "manage_force_sub":
+        # This function uses edit_message_text, which is fine since the content is just text
         await show_force_sub_management(query, context)
     
     elif data == "generate_links":
@@ -592,10 +621,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         keyboard = [[InlineKeyboardButton("🔙 CANCEL", callback_data="admin_back")]]
         
-        await query.edit_message_text(
-            "🔗 **GENERATE CHANNEL LINKS**\n\n"
-            "Please send the **username** \\(starting with @\\) of the channel "
-            "you want to generate a one\\-time, expirable link for\\.",
+        # Must delete/send new message if original message contains media (from start)
+        try:
+            await query.delete_message()
+        except Exception:
+            pass
+            
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text="🔗 **GENERATE CHANNEL LINKS**\n\n"
+                 "Please send the **username** \\(starting with @\\) of the channel "
+                 "you want to generate a one\\-time, expirable link for\\.",
             parse_mode='MarkdownV2',
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
@@ -626,10 +662,18 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         user_states[user_id] = ADD_CHANNEL_USERNAME
-        await query.edit_message_text(
-            "📺 **ADD FORCE SUBSCRIPTION CHANNEL**\n\n"
-            "Please send me the channel username \\(starting with @\\):\n\n"
-            "Example: `@Beat_Anime_Ocean`",
+        
+        # Must delete/send new message if original message contains media (from start)
+        try:
+            await query.delete_message()
+        except Exception:
+            pass
+            
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text="📺 **ADD FORCE SUBSCRIPTION CHANNEL**\n\n"
+                 "Please send me the channel username \\(starting with @\\):\n\n"
+                 "Example: `@Beat_Anime_Ocean`",
             parse_mode='MarkdownV2',
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 CANCEL", callback_data="manage_force_sub")]])
         )
@@ -669,17 +713,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif data in ["admin_back", "user_back", "channels_back"]:
         if is_admin(user_id):
-            keyboard = [
-                [InlineKeyboardButton("📊 BOT STATS", callback_data="admin_stats")],
-                [InlineKeyboardButton("📺 MANAGE FORCE SUB CHANNELS", callback_data="manage_force_sub")],
-                [InlineKeyboardButton("🔗 GENERATE CHANNEL LINKS", callback_data="generate_links")],
-                [InlineKeyboardButton("📢 START MEDIA BROADCAST", callback_data="admin_broadcast_start")],
-                [InlineKeyboardButton("👥 USER MANAGEMENT", callback_data="user_management")]
-            ]
-            text = "👑 **ADMIN PANEL** 👑\n\nChoose an option\\:"
-            await query.edit_message_text(text, parse_mode='MarkdownV2', reply_markup=InlineKeyboardMarkup(keyboard))
+            # --- FIX: Delete and Send New Message ---
+            try:
+                await query.delete_message()
+            except Exception:
+                pass
+            
+            await send_admin_menu(query.message.chat_id, context)
+            # --- END FIX ---
         else:
-            # 🆕 NEW DYNAMIC WELCOME MESSAGE LOGIC for user_back 
+            # User back logic (kept as copy_message)
             keyboard = [
                 [
                     InlineKeyboardButton("ANIME CHANNEL", url=PUBLIC_ANIME_CHANNEL_URL),
@@ -716,37 +759,30 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     
     elif data == "about_bot":
-        # FIXED: MarkdownV2 escape sequences (e.g., escaping the dot after 'Adios' and the backslash)
+        # FIXED: MarkdownV2 escape sequences
         about_me_text = """
 *About Us\\.*
 
-▣ Made for: @Beat_Anime_Ocean
-▣ Owned by: @Beat_Anime_Ocean
-▣ Developer: @Beat_Anime_Ocean
+*▣ Made for:  @Beat_Anime_Ocean\\*
+*▣ Owned by:  @Beat_Anime_Ocean\\*
+*▣ Developer:  @Beat_Anime_Ocean\\*
 
 _Adios \!\!_
 """
         keyboard = [[InlineKeyboardButton("🔙 BACK", callback_data="user_back")]] 
         
+        # FIX: Ensure a delete is attempted before sending the new message
         try:
-            await query.edit_message_text(
-                text=about_me_text,
-                parse_mode='MarkdownV2',
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
+            await query.delete_message()
         except Exception:
-            # Fallback for when the message can't be edited (e.g., if it was a photo)
-            try:
-                await query.delete_message()
-            except Exception:
-                pass
-            
-            await context.bot.send_message(
-                chat_id=query.message.chat_id,
-                text=about_me_text,
-                parse_mode='MarkdownV2',
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
+            logger.warning("Could not delete message during 'about_bot' switch, proceeding to send new message.")
+
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text=about_me_text,
+            parse_mode='MarkdownV2',
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
 
 async def show_force_sub_management(query, context):
     user_id = query.from_user.id
@@ -872,27 +908,17 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK TO MENU", callback_data="admin_back")]])
         )
         
-    # 🆕 Handle incoming media/text for broadcast
+    # Handle incoming media/text for broadcast
     elif state == PENDING_BROADCAST:
         if user_id in user_states:
             del user_states[user_id] # Clear state
             await broadcast_message_to_all_users(update, context, update.message)
             # Send back to admin menu
-            keyboard = [
-                [InlineKeyboardButton("📊 BOT STATS", callback_data="admin_stats")],
-                [InlineKeyboardButton("📺 MANAGE FORCE SUB CHANNELS", callback_data="manage_force_sub")],
-                [InlineKeyboardButton("🔗 GENERATE CHANNEL LINKS", callback_data="generate_links")],
-                [InlineKeyboardButton("📢 START MEDIA BROADCAST", callback_data="admin_broadcast_start")],
-                [InlineKeyboardButton("👥 USER MANAGEMENT", callback_data="user_management")]
-            ]
-            await update.message.reply_text(
-                "✅ Broadcast finished\\. Returning to Admin Panel\\:",
-                parse_mode='MarkdownV2',
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
+            await send_admin_menu(update.effective_chat.id, context)
             return
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Log the error, but do not interact with the user to avoid creating further edit/send conflicts.
     logger.error(f"Exception while handling an update: {context.error}")
 
 async def cleanup_task(context: ContextTypes.DEFAULT_TYPE):
@@ -909,7 +935,7 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_handler))
     
-    # 🆕 NEW HANDLER for all non-command messages from the Admin for state-based processing (including broadcast)
+    # Handler for all non-command messages from the Admin for state-based processing (including broadcast)
     admin_filter = filters.User(user_id=ADMIN_ID)
     application.add_handler(MessageHandler(admin_filter & ~filters.COMMAND, handle_admin_message))
     
@@ -920,7 +946,7 @@ def main():
     if job_queue: 
         job_queue.run_repeating(cleanup_task, interval=600, first=10)
 
-    # 🚨 CRITICAL FIX 🚨: Switch from run_polling() to run_webhook() for Render stability
+    # CRITICAL FIX: run_webhook() for Render stability
     if WEBHOOK_URL and BOT_TOKEN:
         print(f"🤖 Starting Webhook listener on port {PORT}\\. Webhook URL: {WEBHOOK_URL}")
         application.run_webhook(
@@ -930,7 +956,7 @@ def main():
             webhook_url=WEBHOOK_URL + BOT_TOKEN
         )
     else:
-        # Fallback (This is the source of the conflict error on Render)
+        # Fallback (Should not be hit on Render with correct env vars)
         print("🤖 RENDER_EXTERNAL_URL not found. Starting in Polling Mode...")
         application.run_polling()
 
