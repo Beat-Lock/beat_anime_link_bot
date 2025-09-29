@@ -56,8 +56,7 @@ def escape_markdown_v2(text):
 
 # --- CORRECTED DATABASE INITIALIZATION ---
 def init_db():
-    # NOTE: The database should be deleted (rm bot_data.db) before deployment 
-    # if you encounter the 'unrecognized token: "!"' error.
+    # NOTE: Reverting to the standard name 'bot_data.db' now that the bot logic is fixed
     conn = sqlite3.connect('bot_data.db')
     cursor = conn.cursor()
     
@@ -274,6 +273,87 @@ async def send_admin_stats(query, context):
         parse_mode='MarkdownV2', 
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+
+async def show_force_sub_management(query, context):
+    """Displays the list of force sub channels with options to add/delete."""
+    channels = get_all_force_sub_channels()
+    
+    channels_text = "📺 **FORCE SUBSCRIPTION CHANNELS** 📺\n\n"
+    
+    if not channels:
+        channels_text += r"No channels configured currently\."
+    else:
+        channels_text += r"Configured Channels:\n"
+        for channel_username, channel_title in channels:
+            safe_title = escape_markdown_v2(channel_title)
+            safe_username = escape_markdown_v2(channel_username)
+            channels_text += rf"• {safe_title} (`{safe_username}`)\n"
+
+    keyboard = [
+        [InlineKeyboardButton("➕ ADD NEW CHANNEL", callback_data="add_channel_start")],
+        [InlineKeyboardButton("ℹ️ CHANNEL DETAILS", callback_data="channel_details_prompt")]
+    ]
+    
+    # If channels exist, add specific management buttons
+    if channels:
+        # Create a button for each channel to view details/delete
+        channel_buttons = [InlineKeyboardButton(channel[1], callback_data=f"channel_{channel[0]}")] for channel in channels]
+        # Group channel buttons into rows of 2 for better display
+        grouped_buttons = [channel_buttons[i:i + 2] for i in range(0, len(channel_buttons), 2)]
+        
+        keyboard.insert(1, *grouped_buttons)
+        keyboard.append([InlineKeyboardButton("🗑️ DELETE CHANNEL", callback_data="delete_channel_prompt")])
+
+    keyboard.append([InlineKeyboardButton("🔙 BACK TO MENU", callback_data="admin_back")])
+    
+    # FIX: Delete and Send New Message
+    try:
+        await query.delete_message()
+    except Exception:
+        pass
+        
+    await context.bot.send_message(
+        chat_id=query.message.chat_id,
+        text=channels_text,
+        parse_mode='MarkdownV2',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def show_channel_details(query, context, channel_username):
+    """Displays detailed options for a specific force sub channel."""
+    channel_info = get_force_sub_channel_info(channel_username)
+    
+    if not channel_info:
+        await query.edit_message_text(r"❌ Channel not found\.", parse_mode='MarkdownV2', reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 MANAGE CHANNELS", callback_data="manage_force_sub")]]))
+        return
+        
+    channel_username, channel_title = channel_info
+    
+    safe_title = escape_markdown_v2(channel_title)
+    safe_username = escape_markdown_v2(channel_username)
+    
+    details_text = rf"""
+📺 **CHANNEL DETAILS** 📺
+
+**Title:** {safe_title}
+**Username:** {safe_username}
+**Status:** *Active Force Sub*
+
+_Choose an action below\._
+    """
+    
+    keyboard = [
+        [InlineKeyboardButton("🔗 GENERATE TEMP LINK", callback_data=f"genlink_{channel_username}")],
+        [InlineKeyboardButton("🗑️ DELETE CHANNEL", callback_data=f"delete_{channel_username}")],
+        [InlineKeyboardButton("🔙 BACK TO MANAGEMENT", callback_data="manage_force_sub")]
+    ]
+    
+    await query.edit_message_text(
+        text=details_text,
+        parse_mode='MarkdownV2',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
 
 async def send_user_management(query, context, offset=0):
     """Displays a paginated list of users."""
@@ -747,6 +827,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
         await context.bot.send_message(
             chat_id=query.message.chat_id,
+            # FIXED INDENTATION HERE
             text=r"🔗 **GENERATE CHANNEL LINKS**\n\n"
                  r"Please send the **username** (starting with @) of the channel "
                  r"you want to generate a one\-time, expirable link for\.",
@@ -1051,8 +1132,3 @@ if __name__ == '__main__':
         os.environ['PORT'] = str(8080)
     
     main()
-
-
-
-
-
