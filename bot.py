@@ -19,18 +19,19 @@ BOT_TOKEN = '7877393813:AAGKvpRBlYWwO70B9pQpD29BhYCXwiZGngw'
 ADMIN_ID = 829342319
 LINK_EXPIRY_MINUTES = 5  # Links expire after 5 minutes
 
+# Global variables for webhook configuration
+PORT = int(os.environ.get('PORT', 8080))
+WEBHOOK_URL = os.environ.get('RENDER_EXTERNAL_URL', '').rstrip('/') + '/'
+
 # =================================================================
 # ⚙️ CUSTOMIZATION CONSTANTS - YOU MUST UPDATE THESE! 
 # =================================================================
 
-# ❗ Channel ID for "Beat anime [Privat]" 
+# ❗ Channel ID for the welcome message source
+# You identified this as -1002530952988 (Beat anime [Privat]) in an earlier image.
 WELCOME_SOURCE_CHANNEL = -1002530952988
 # ❗ Message ID of the welcome post inside that channel
 WELCOME_SOURCE_MESSAGE_ID = 32  
-
-# Old file IDs are now deprecated
-WELCOME_PHOTO_FILE_ID = '' 
-ABOUT_ME_PHOTO_FILE_ID = '' 
 
 PUBLIC_ANIME_CHANNEL_URL = "https://t.me/BeatAnime"
 REQUEST_CHANNEL_URL = "https://t.me/Beat_Hindi_Dubbed"
@@ -251,7 +252,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("📊 BOT STATS", callback_data="admin_stats")],
             [InlineKeyboardButton("📺 MANAGE FORCE SUB CHANNELS", callback_data="manage_force_sub")],
             [InlineKeyboardButton("🔗 GENERATE CHANNEL LINKS", callback_data="generate_links")],
-            [InlineKeyboardButton("📢 START MEDIA BROADCAST", callback_data="admin_broadcast_start")], # Updated button for new flow
+            [InlineKeyboardButton("📢 START MEDIA BROADCAST", callback_data="admin_broadcast_start")],
             [InlineKeyboardButton("👥 USER MANAGEMENT", callback_data="user_management")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -262,7 +263,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=reply_markup
         )
     else:
-        # 🆕 NEW DYNAMIC WELCOME MESSAGE LOGIC with 2-COLUMN LAYOUT
+        # 🆕 DYNAMIC WELCOME MESSAGE LOGIC with 2-COLUMN LAYOUT
         keyboard = [
             # Row 1: Two buttons side-by-side
             [
@@ -329,7 +330,7 @@ async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        channels_text = "\n".join([f"• {title} (`{username}`)" for username, title in not_joined_channels])
+        channels_text = "\n".join([f"• {title}" for _, title in not_joined_channels])
         
         await update.message.reply_text(
             f"📢 **Please join our channels to get access!**\n\n"
@@ -370,7 +371,6 @@ async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT
         logger.error(f"Error generating invite link for {channel_username}: {e}")
         await update.message.reply_text("❌ Error generating access link\\\. Make sure the bot is an *Admin* in the target channel and has the right to create invite links\\.", parse_mode='MarkdownV2')
 
-# 🆕 REPLACING OLD /broadcast command
 async def broadcast_message_to_all_users(update: Update, context: ContextTypes.DEFAULT_TYPE, message_to_copy):
     """Internal function to handle the actual broadcast by copying the message."""
     users = get_all_users()
@@ -706,13 +706,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     
     elif data == "about_bot":
-        # Hardcoded message for simplicity 
+        # Using the information from your screenshot for the About Me section
         about_me_text = """
 *About Us\\.*
 
-▣ Made for: @Beat_Anime_Ocean
-▣ Owned by: @Beat_Anime_Ocean
-▣ Developer: @Beat_Anime_Ocean
+➡️ Made for: @Ayanakaji
+➡️ Owned by: @Ayanakaji
+➡️ Developer: @Union\_Owner
 
 _Adios \!\!_
 """
@@ -796,7 +796,6 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
     text = update.message.text
     
     if state == ADD_CHANNEL_USERNAME:
-        # (Same as before)
         if not text.startswith('@'):
             await update.message.reply_text("❌ Please provide a valid channel username starting with @. Try again:", parse_mode='Markdown')
             return
@@ -813,7 +812,6 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
         )
     
     elif state == ADD_CHANNEL_TITLE:
-        # (Same as before)
         channel_username = context.user_data.get('channel_username')
         
         if add_force_sub_channel(channel_username, text):
@@ -834,7 +832,6 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
             await update.message.reply_text("❌ Error adding channel. It might already exist or there was a database error.")
             
     elif state == GENERATE_LINK_CHANNEL_USERNAME:
-        # (Same as before)
         channel_username = text.strip()
         
         if not channel_username.startswith('@'):
@@ -858,7 +855,7 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK TO MENU", callback_data="admin_back")]])
         )
         
-    # 🆕 NEW: Handle incoming media/text for broadcast
+    # 🆕 Handle incoming media/text for broadcast
     elif state == PENDING_BROADCAST:
         if user_id in user_states:
             del user_states[user_id] # Clear state
@@ -880,7 +877,6 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Exception while handling an update: {context.error}")
 
-# Cleanup task
 async def cleanup_task(context: ContextTypes.DEFAULT_TYPE):
     cleanup_expired_links()
 
@@ -893,26 +889,36 @@ def main():
     
     # Add handlers
     application.add_handler(CommandHandler("start", start))
-    # application.add_handler(CommandHandler("broadcast", broadcast)) # REMOVED OLD COMMAND
     application.add_handler(CallbackQueryHandler(button_handler))
     
     # 🆕 NEW HANDLER for all non-command messages from the Admin for state-based processing (including broadcast)
     admin_filter = filters.User(user_id=ADMIN_ID)
     application.add_handler(MessageHandler(admin_filter & ~filters.COMMAND, handle_admin_message))
     
-    # Existing handler for general user text is now only for the Admin state logic above
-    # application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message)) 
-    
     application.add_error_handler(error_handler)
     
-    # Add cleanup job (runs every 10 minutes)
+    # Add cleanup job
     job_queue = application.job_queue
     if job_queue: 
         job_queue.run_repeating(cleanup_task, interval=600, first=10)
-    
-    # Run the bot
-    print("Starting bot...")
-    application.run_polling(poll_interval=1.0)
+
+    # 🚨 CRITICAL CHANGE 🚨: Switch from run_polling() to run_webhook() for Render stability
+    if WEBHOOK_URL and BOT_TOKEN:
+        print(f"🤖 Starting Webhook listener on port {PORT}. Webhook URL: {WEBHOOK_URL}")
+        application.run_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            url_path=BOT_TOKEN,
+            webhook_url=WEBHOOK_URL + BOT_TOKEN
+        )
+    else:
+        # Fallback (This is the source of the conflict error on Render)
+        print("🤖 RENDER_EXTERNAL_URL not found. Starting in Polling Mode...")
+        application.run_polling()
 
 if __name__ == '__main__':
+    # Set default port if running locally, ignored on Render
+    if 'PORT' not in os.environ:
+        os.environ['PORT'] = str(8080)
+    
     main()
