@@ -405,33 +405,23 @@ async def send_user_management(query, context, offset=0):
             display_name = f"{first_name or ''} {last_name or ''}".strip() or "N/A"
             display_username = f"@{username}" if username else f"ID: {user_id}"
             
-            # Escape user-provided data before insertion
-            safe_display_name = escape_markdown_v2(display_name)
-            safe_display_username = escape_markdown_v2(display_username)
-            
-            # Format and escape the date
+            # Format the date
             try:
                 formatted_date = datetime.fromisoformat(joined_date).strftime('%Y-%m-%d %H:%M')
-                safe_joined = escape_markdown_v2(formatted_date)
             except:
-                safe_joined = escape_markdown_v2("Unknown")
+                formatted_date = "Unknown"
             
-            user_list_text += f"**{safe_display_name}** (`{safe_display_username}`)\n"
-            user_list_text += f"Joined\\: {safe_joined}\n\n"
+            user_list_text += f"<b>{display_name}</b> (<code>{display_username}</code>)\n"
+            user_list_text += f"Joined: {formatted_date}\n\n"
     
     if not user_list_text:
-        user_list_text = "No users found in the database\\."
+        user_list_text = "No users found in the database."
 
-    # Escape all numeric values
-    safe_user_count = escape_markdown_v2(str(user_count))
-    safe_start = escape_markdown_v2(str(offset + 1))
-    safe_end = escape_markdown_v2(str(min(offset + 10, user_count)))
-    
-    # Build message with ALL colons properly escaped
+    # Build message using HTML instead of MarkdownV2
     stats_text = (
-        "👥 **USER MANAGEMENT** 👥\n\n" +
-        f"**Total Users\\:** {safe_user_count}\n" +
-        f"**Showing\\:** {safe_start}\\-{safe_end} of {safe_user_count}\n\n" +
+        "👥 <b>USER MANAGEMENT</b> 👥\n\n" +
+        f"<b>Total Users:</b> {user_count}\n" +
+        f"<b>Showing:</b> {offset + 1}-{min(offset + 10, user_count)} of {user_count}\n\n" +
         user_list_text
     )
     
@@ -453,7 +443,7 @@ async def send_user_management(query, context, offset=0):
     if query.data.startswith("user_page_"):
         await query.edit_message_text(
             text=stats_text,
-            parse_mode='MarkdownV2',
+            parse_mode='HTML',
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     else:
@@ -461,7 +451,7 @@ async def send_user_management(query, context, offset=0):
         await context.bot.send_message(
             chat_id=query.message.chat_id, 
             text=stats_text, 
-            parse_mode='MarkdownV2', 
+            parse_mode='HTML', 
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
