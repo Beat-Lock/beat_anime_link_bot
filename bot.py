@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 import asyncio
+import os # Ensure os is imported for the temporary fix
 
 # Configure logging
 logging.basicConfig(
@@ -54,12 +55,22 @@ def escape_markdown_v2(text):
     text = text.replace('\\', '\\\\')
     return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
 
-# --- CORRECTED DATABASE INITIALIZATION ---
-# --- TEMPORARY CRITICAL FIX: Delete the old DB file on startup ---
-    # TEMPORARY FIX: Check if the file exists and delete it to force a clean recreation
- # --- REVERTED DATABASE INITIALIZATION (FINAL CODE) ---
+# --- CORRECTED DATABASE INITIALIZATION WITH TEMPORARY FIX ---
 def init_db():
-    conn = sqlite3.connect('bot_data.db')
+    db_file = 'bot_data.db'
+    
+    # === TEMPORARY CRITICAL FIX START ===
+    # This block deletes the existing file to resolve the "no such table" error.
+    # YOU MUST REMOVE THIS BLOCK AFTER ONE SUCCESSFUL DEPLOYMENT!
+    if os.path.exists(db_file):
+        try:
+            os.remove(db_file)
+            print(f"Removed incomplete database: {db_file} to force recreation.")
+        except Exception as e:
+            print(f"Could not remove database file: {e}")
+    # === TEMPORARY CRITICAL FIX END ===
+            
+    conn = sqlite3.connect(db_file)
     cursor = conn.cursor()
     
     # Users table
@@ -73,9 +84,18 @@ def init_db():
         )
     ''')
     
-    # ... rest of the CREATE TABLE statements ...
+    # Force subscription channels table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS force_sub_channels (
+            channel_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            channel_username TEXT UNIQUE,
+            channel_title TEXT,
+            added_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            is_active BOOLEAN DEFAULT 1
+        )
+    ''')
     
-    # Generated links table 
+    # Generated links table (This is the table that was missing)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS generated_links (
             link_id TEXT PRIMARY KEY,
@@ -88,7 +108,6 @@ def init_db():
     
     conn.commit()
     conn.close()
-# --- END DATABASE INITIALIZATION ---
 # --- END DATABASE INITIALIZATION ---
 
 
@@ -284,19 +303,28 @@ async def show_force_sub_management(query, context):
             channels_text += rf"• {safe_title} (`{safe_username}`)\n"
 
     keyboard = [
-        [InlineKeyboardButton("➕ ADD NEW CHANNEL", callback_data="add_channel_start")],
-        [InlineKeyboardButton("ℹ️ CHANNEL DETAILS", callback_data="channel_details_prompt")]
+        [InlineKeyboardButton("➕ ADD NEW CHANNEL", callback_data="add_channel_start")]
     ]
     
     # If channels exist, add specific management buttons
     if channels:
-        # Create a button for each channel to view details/delete
-        channel_buttons = [InlineKeyboardButton(channel[1], callback_data=f"channel_{channel[0]}") for channel in channels]
+        # Corrected List Comprehension: Unpacks channel_username and channel_title directly
+        # THIS IS THE FINAL FIX FOR THE SYNTAX/LOGIC ERROR
+        channel_buttons = [
+            InlineKeyboardButton(channel_title, callback_data=f"channel_{channel_username}") 
+            for channel_username, channel_title in channels
+        ]
+        
         # Group channel buttons into rows of 2 for better display
         grouped_buttons = [channel_buttons[i:i + 2] for i in range(0, len(channel_buttons), 2)]
         
-        keyboard.insert(1, *grouped_buttons)
+        # Insert the channel buttons 
+        for row in grouped_buttons:
+            keyboard.append(row)
+
+        # Now add the delete button, since we have channels
         keyboard.append([InlineKeyboardButton("🗑️ DELETE CHANNEL", callback_data="delete_channel_prompt")])
+        keyboard.append([InlineKeyboardButton("ℹ️ CHANNEL DETAILS", callback_data="channel_details_prompt")]) # Kept for backward compatibility, though not used in full flow
 
     keyboard.append([InlineKeyboardButton("🔙 BACK TO MENU", callback_data="admin_back")])
     
@@ -654,7 +682,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
-        if is_admin(user.id):
+        if is_admin(user_id):
             try:
                 await query.delete_message()
             except Exception:
@@ -801,6 +829,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # --- MANAGE FORCE SUB CHANNELS ---
     elif data == "manage_force_sub":
+        if not is_admin(user_id):
+            await query.edit_message_text(r"❌ Admin only\.", parse_mode='MarkdownV2')
+            return
         await show_force_sub_management(query, context)
     
     # --- GENERATE LINKS FLOW START ---
@@ -821,7 +852,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
         await context.bot.send_message(
             chat_id=query.message.chat_id,
-            # FIXED INDENTATION HERE
             text=r"🔗 **GENERATE CHANNEL LINKS**\n\n"
                  r"Please send the **username** (starting with @) of the channel "
                  r"you want to generate a one\-time, expirable link for\.",
@@ -878,9 +908,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     
     elif data.startswith("channel_"):
+        if not is_admin(user_id):
+            await query.edit_message_text(r"❌ Admin only\.", parse_mode='MarkdownV2')
+            return
         await show_channel_details(query, context, data[8:])
     
     elif data.startswith("delete_"):
+        if not is_admin(user_id):
+            await query.edit_message_text(r"❌ Admin only\.", parse_mode='MarkdownV2')
+            return
         channel_username = data[7:]
         channel_info = get_force_sub_channel_info(channel_username)
         
@@ -905,6 +941,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
     
     elif data.startswith("confirm_delete_"):
+        if not is_admin(user_id):
+            await query.edit_message_text(r"❌ Admin only\.", parse_mode='MarkdownV2')
+            return
         channel_username = data[15:]
         delete_force_sub_channel(channel_username)
         
@@ -1126,7 +1165,3 @@ if __name__ == '__main__':
         os.environ['PORT'] = str(8080)
     
     main()
-
-
-
-
