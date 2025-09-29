@@ -269,15 +269,21 @@ async def send_admin_stats(query, context):
     user_count = get_user_count()
     channel_count = get_force_sub_channel_count()
     
+    # Escape all dynamic values that might contain special characters
+    safe_user_count = escape_markdown_v2(str(user_count))
+    safe_channel_count = escape_markdown_v2(str(channel_count))
+    safe_expiry = escape_markdown_v2(str(LINK_EXPIRY_MINUTES))
+    safe_datetime = escape_markdown_v2(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    
     # Using raw f-string to ensure correct MarkdownV2 escaping
     stats_text = rf"""
 📊 **BOT STATISTICS** 📊
 
-👥 **Total Users:** {user_count}
-📺 **Force Sub Channels:** {channel_count}
-🔗 **Link Expiry:** {LINK_EXPIRY_MINUTES} minutes
+👥 **Total Users:** {safe_user_count}
+📺 **Force Sub Channels:** {safe_channel_count}
+🔗 **Link Expiry:** {safe_expiry} minutes
 
-*Last Cleanup:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+*Last Cleanup:* {safe_datetime}
     """
     
     keyboard = [[InlineKeyboardButton("🔄 REFRESH", callback_data="admin_stats")],
@@ -403,19 +409,25 @@ async def send_user_management(query, context, offset=0):
         # Escape user-provided data before insertion
         safe_display_name = escape_markdown_v2(display_name)
         safe_display_username = escape_markdown_v2(display_username)
+        safe_joined = escape_markdown_v2(datetime.fromisoformat(joined_date).strftime('%Y-%m-%d %H:%M'))
         
         user_list_text += f"**{safe_display_name}** (`{safe_display_username}`)\n"
-        user_list_text += f"Joined: {datetime.fromisoformat(joined_date).strftime('%Y-%m-%d %H:%M')}\n"
+        user_list_text += f"Joined: {safe_joined}\n\n"
     
     if not user_list_text:
         user_list_text = r"No users found in the database\."
 
+    # Escape all numeric values
+    safe_user_count = escape_markdown_v2(str(user_count))
+    safe_start = escape_markdown_v2(str(offset + 1))
+    safe_end = escape_markdown_v2(str(min(offset + 10, user_count)))
+    
     # Using raw f-string to ensure correct MarkdownV2 escaping
     stats_text = rf"""
 👥 **USER MANAGEMENT** 👥
 
-**Total Users:** {user_count}
-**Showing:** {offset + 1}\-{min(offset + 10, user_count)} of {user_count}
+**Total Users:** {safe_user_count}
+**Showing:** {safe_start}\-{safe_end} of {safe_user_count}
 
 {user_list_text}
     """
@@ -1076,12 +1088,13 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
         
         # **CRITICAL FIX:** Escape the deep_link because link_id contains MarkdownV2 reserved characters
         safe_deep_link = escape_markdown_v2(deep_link)
+        safe_expiry = escape_markdown_v2(str(LINK_EXPIRY_MINUTES))
         
         # Using raw f-string to ensure correct MarkdownV2 escaping
         await update.message.reply_text(
             rf"🔗 **LINK GENERATED** 🔗\n\n"
             rf"**Channel:** {safe_channel_username}\n"
-            rf"**Expires in:** {LINK_EXPIRY_MINUTES} minutes\n\n"
+            rf"**Expires in:** {safe_expiry} minutes\n\n"
             rf"**Direct Link:**\n`{safe_deep_link}`\n\n"
             r"Share this link with users\!",
             parse_mode='MarkdownV2',
