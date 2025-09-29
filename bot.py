@@ -412,7 +412,7 @@ async def send_user_management(query, context, offset=0):
         safe_joined = escape_markdown_v2(datetime.fromisoformat(joined_date).strftime('%Y-%m-%d %H:%M'))
         
         user_list_text += f"**{safe_display_name}** (`{safe_display_username}`)\n"
-        user_list_text += f"Joined: {safe_joined}\n\n"
+        user_list_text += f"Joined\\: {safe_joined}\n\n"
     
     if not user_list_text:
         user_list_text = r"No users found in the database\."
@@ -422,15 +422,13 @@ async def send_user_management(query, context, offset=0):
     safe_start = escape_markdown_v2(str(offset + 1))
     safe_end = escape_markdown_v2(str(min(offset + 10, user_count)))
     
-    # Using raw f-string to ensure correct MarkdownV2 escaping
-    stats_text = rf"""
-👥 **USER MANAGEMENT** 👥
-
-**Total Users:** {safe_user_count}
-**Showing:** {safe_start}\-{safe_end} of {safe_user_count}
-
-{user_list_text}
-    """
+    # Build message with proper escaping
+    stats_text = (
+        r"👥 **USER MANAGEMENT** 👥" + "\n\n" +
+        f"**Total Users\\:** {safe_user_count}\n" +
+        f"**Showing\\:** {safe_start}\\-{safe_end} of {safe_user_count}\n\n" +
+        user_list_text
+    )
     
     # Build keyboard
     pagination_buttons = []
