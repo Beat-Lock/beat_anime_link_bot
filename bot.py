@@ -38,6 +38,7 @@ ADMIN_CONTACT_USERNAME = "Beat_Anime_Ocean"
 INIT, ADMIN_MENU, GENERATE_LINK_CHANNEL_USERNAME, BROADCAST_MESSAGE, FORCE_SUB_ADD_USERNAME, FORCE_SUB_ADD_TITLE, FORCE_SUB_REMOVE = range(7)
 user_states = {}
 user_broadcast_text = {} # Stores text for broadcast
+
 # Database functions
 def init_db():
     conn = sqlite3.connect('bot_data.db')
@@ -81,6 +82,15 @@ def get_all_active_users():
     users = [row[0] for row in cursor.fetchall()]
     conn.close()
     return users
+    
+def get_all_active_deep_links():
+    conn = sqlite3.connect('bot_data.db')
+    cursor = conn.cursor()
+    # Count links that are not expired and not used
+    cursor.execute("SELECT COUNT(*) FROM deep_links WHERE is_used = ? AND expiry_time > ?", (False, datetime.now().isoformat()))
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
 
 # Link generation functions
 def generate_link_id(channel_identifier, creator_id):
@@ -147,7 +157,7 @@ def get_all_force_sub_channels():
     return channels
 
 def remove_force_sub_channel(channel_id):
-    conn = sqlite32.connect('bot_data.db')
+    conn = sqlite3.connect('bot_data.db')
     cursor = conn.cursor()
     cursor.execute("DELETE FROM force_subscribe_channels WHERE id = ?", (channel_id,))
     deleted = cursor.rowcount > 0
@@ -239,7 +249,8 @@ async def show_force_sub_management(update: Update, context: ContextTypes.DEFAUL
         reply_markup=get_force_sub_keyboard(),
         parse_mode='MarkdownV2'
     )
-    # Core handlers
+
+# Core handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     add_user(user_id)
@@ -422,7 +433,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_states[user_id] = GENERATE_LINK_CHANNEL_USERNAME
         keyboard = [[InlineKeyboardButton("🔙 BACK TO MENU", callback_data="admin_back")]]
         
-        # FIX 1: Switched to HTML and removed escaping in static text
+        # FIX: Switched to HTML. Parentheses () and periods . are now safe.
         await context.bot.send_message(
             chat_id=query.message.chat_id,
             text="🔗 <b>GENERATE CHANNEL LINKS</b>\n\nPlease send:\n• Channel username (e.g., @YourChannel) OR\n• Private channel ID (e.g., -1001234567890)\n\nTo get private channel ID, forward any message from that channel to @userinfobot",
@@ -434,7 +445,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_states[user_id] = BROADCAST_MESSAGE
         keyboard = [[InlineKeyboardButton("🔙 BACK TO MENU", callback_data="admin_back")]]
         
-        # FIX 3: Switched to HTML and removed escaping in static text
+        # FIX: Switched to HTML.
         await context.bot.send_message(
             chat_id=query.message.chat_id,
             text="📢 <b>BROADCAST MESSAGE</b> 📢\n\nPlease send the message you wish to broadcast to all users (MarkdownV2 is supported).",
@@ -450,7 +461,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         stats_text = (
             f"📊 **BOT STATISTICS** 📊\n\n"
             f"**Total Registered Users:** {total_users}\n"
-            f"**Total Active Deep Links:** {len(get_link_data)}\n" # Placeholder, cleanup is separate
+            f"**Total Active Deep Links:** {get_all_active_deep_links()}\n"
             f"**Force Sub Channels:** {force_sub_channels_count}\n\n"
             f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         )
@@ -491,7 +502,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         remove_text = "➖ **REMOVE CHANNEL**\n\nSend the **ID** of the channel you want to remove:\n\n"
         for id, username, title in channels:
             safe_title = escape_markdown_v2(title)
-            remove_text += rf"• {safe_title} \(`ID: {id}` / `{username}`\)\n"
+            safe_username = escape_markdown_v2(username)
+            remove_text += rf"• {safe_title} \(`ID: {id}` / `{safe_username}`\)\n"
 
         keyboard = [[InlineKeyboardButton("🔙 BACK", callback_data="force_sub_manage")]]
         await query.edit_message_text(
@@ -569,9 +581,7 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
             bot_username = bot_info.username
             deep_link = f"https://t.me/{bot_username}?start={link_id}"
             
-            # FIX 2: Switched success message to HTML
-            # Removed escape_markdown_v2 on dynamic variables
-            
+            # FIX: Switched success message to HTML
             expiry_str = str(LINK_EXPIRY_MINUTES)
             
             await update.message.reply_text(
@@ -597,7 +607,7 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
     elif state == BROADCAST_MESSAGE:
         user_broadcast_text[user_id] = text
         
-        # FIX 4: Switched confirmation message to HTML
+        # FIX: Switched confirmation message to HTML
         keyboard = [
             [InlineKeyboardButton("✅ CONFIRM BROADCAST", callback_data="confirm_broadcast")],
             [InlineKeyboardButton("❌ CANCEL", callback_data="admin_back")]
@@ -613,7 +623,7 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
         await context.bot.send_message(
             chat_id=user_id,
             text=text,
-            parse_mode='MarkdownV2', # Use MarkdownV2 for the preview of the user's text
+            parse_mode='MarkdownV2', # This is the user's input, so it should be parsed as they intended
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         
@@ -706,6 +716,7 @@ def keep_alive():
             except Exception as e:
                 logger.error(f"Keep-alive error: {e}")
                 time.sleep(300)
+
 def main():
     init_db()
     
@@ -748,4 +759,4 @@ def main():
         application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
-    main()                
+    main()
