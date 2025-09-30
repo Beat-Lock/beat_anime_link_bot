@@ -40,13 +40,16 @@ user_states = {}
 
 # Keep-alive service
 def keep_alive():
-    """Pings the bot's own URL every 14 minutes to prevent sleep"""
+    """Pings a reliable external URL every 14 minutes to prevent sleep"""
     while True:
         try:
-            time.sleep(840)
-            if WEBHOOK_URL and WEBHOOK_URL != '/':
-                response = requests.get(WEBHOOK_URL, timeout=10)
-                logger.info(f"Keep-alive ping: {response.status_code}")
+            # Sleep for 14 minutes (840 seconds)
+            time.sleep(840) 
+            
+            # Pings a reliable external site to generate outgoing traffic
+            response = requests.get("https://www.google.com/robots.txt", timeout=10)
+            logger.info(f"Keep-alive: Sent outgoing ping ({response.status_code}). Bot remains active 24/7.")
+
         except Exception as e:
             logger.error(f"Keep-alive error: {e}")
 
@@ -1108,3 +1111,4 @@ if __name__ == '__main__':
         os.environ['PORT'] = str(8080)
     
     main()
+
