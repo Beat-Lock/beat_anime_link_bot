@@ -900,7 +900,7 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
             
     text = update.message.text
     if text is None:
-        await update.message.reply_text(r"❌ Please send a text message as requested \(e\.g\., a username or title\)\.", parse_mode='MarkdownV2')
+        await update.message.reply_text("❌ Please send a text message as requested (e.g., a username or title).", parse_mode='MarkdownV2')
         return
 
     if state == ADD_CHANNEL_USERNAME:
@@ -912,9 +912,9 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
         user_states[user_id] = ADD_CHANNEL_TITLE
         
         await update.message.reply_text(
-            r"📝 **STEP 2\: Channel Title**" + "\n\n" +
-            r"Now please send me the display title for this channel\:" + "\n\n" +
-            r"Example\: `Anime Ocean Channel`",
+            "📝 **STEP 2: Channel Title**\n\n"
+            "Now please send me the display title for this channel:\n\n"
+            "Example: `Anime Ocean Channel`",
             parse_mode='MarkdownV2',
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 CANCEL", callback_data="manage_force_sub")]])
         )
@@ -942,7 +942,6 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
             )
         else:
             await update.message.reply_text(r"❌ Error adding channel\. It might already exist or there was a database error\.", parse_mode='MarkdownV2')
-            
     elif state == GENERATE_LINK_CHANNEL_USERNAME:
         channel_username = text.strip()
         
