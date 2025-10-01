@@ -8,7 +8,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 import asyncio
 from threading import Thread
-import psycopg2
+import pg8000
 from urllib.parse import urlparse
 
 # Configure logging
@@ -46,7 +46,7 @@ def get_db_connection():
     if database_url:
         # Parse the database URL (Render provides this)
         result = urlparse(database_url)
-        return psycopg2.connect(
+        return pg8000.connect(
             database=result.path[1:],
             user=result.username,
             password=result.password,
