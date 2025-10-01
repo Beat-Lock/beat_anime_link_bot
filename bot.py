@@ -286,17 +286,16 @@ async def send_admin_stats(query, context):
 async def show_force_sub_management(query, context):
     channels = get_all_force_sub_channels()
     
-    channels_text = "📺 **FORCE SUBSCRIPTION CHANNELS** 📺\n\n"
+    # FIX: Switched to HTML parsing mode as requested
+    channels_text = "📺 <b>FORCE SUBSCRIPTION CHANNELS</b> 📺\n\n"
     
     if not channels:
-        channels_text += r"No channels configured currently\."
+        channels_text += "No channels configured currently."
     else:
-        channels_text += r"Configured Channels:\n"
+        channels_text += "Configured Channels:\n"
         for channel_username, channel_title in channels:
-            safe_title = escape_markdown_v2(channel_title)
-            safe_username = escape_markdown_v2(channel_username)
-            # FIX: Escape parentheses \( and \) for MarkdownV2 inside f-string
-            channels_text += rf"• {safe_title} \(`{safe_username}`\)\n"
+            # FIX: Using HTML tags for safe display without complex escaping
+            channels_text += f"• <b>{channel_title}</b> (<code>{channel_username}</code>)\n" 
 
     keyboard = [
         [InlineKeyboardButton("➕ ADD NEW CHANNEL", callback_data="add_channel_start")]
@@ -325,7 +324,8 @@ async def show_force_sub_management(query, context):
     await context.bot.send_message(
         chat_id=query.message.chat_id,
         text=channels_text,
-        parse_mode='MarkdownV2',
+        # FIX: Changed parse_mode to HTML
+        parse_mode='HTML', 
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
@@ -678,7 +678,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     chat_id=query.message.chat_id,
                     from_chat_id=WELCOME_SOURCE_CHANNEL,
                     message_id=WELCOME_SOURCE_MESSAGE_ID,
-                    reply_markup=reply_markup # FIXED INDENTATION HERE
+                    reply_markup=reply_markup
                 )
             except Exception as e:
                 logger.error(f"ᴇʀʀᴏʀ ᴄᴏᴘʏɪɴɢ ᴠᴇʀɪғɪᴇᴅ ᴡᴇʟᴄᴏᴍᴇ ᴍᴇssᴀɢᴇ: {e}")
@@ -904,9 +904,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         about_me_text = r"""
 *About Us\.*
 
-▣**Made for: @Beat\_Anime\_Ocean**
-▣**Owned by: @Beat\_Anime\_Ocean**
-▣**Developer: @Beat\_Anime\_Ocean**
+▣ **Made for: @Beat\_Anime\_Ocean**
+▣ **Owned by: @Beat\_Anime\_Ocean**
+▣ **Developer: @Beat\_Anime\_Ocean**
 
 _Adios \!\!_
 """
