@@ -19,9 +19,14 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Bot configuration
-BOT_TOKEN = os.environ.get('BOT_TOKEN', '7877393813:AAGKvpRBlYWwO70B9pQpD29BhYCXwiZGngw')
+BOT_TOKEN = os.environ.get('BOT_TOKEN')
 ADMIN_ID = int(os.environ.get('ADMIN_ID', 829342319))
 LINK_EXPIRY_MINUTES = 5
+
+# Validate required environment variables
+if not BOT_TOKEN:
+    logger.error("❌ BOT_TOKEN environment variable is required")
+    exit(1)
 
 # Global variables for webhook configuration
 PORT = int(os.environ.get('PORT', 8080))
@@ -1217,3 +1222,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
