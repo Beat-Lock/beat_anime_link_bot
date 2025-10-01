@@ -470,7 +470,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 InlineKeyboardButton("ᴄʟᴏsᴇ", callback_data="close_message")
             ]
         ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
+        # FIX: Corrected IndentationError. This line must be at the same indentation level as the 'keyboard' list definition.
+        reply_markup = InlineKeyboardMarkup(keyboard) 
 
         try:
             await context.bot.copy_message(
@@ -649,7 +650,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
-        if is_admin(user.id):
+        if is_admin(user_id):
             try:
                 await query.delete_message()
             except Exception:
@@ -665,21 +666,21 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     InlineKeyboardButton("ᴄʟᴏsᴇ", callback_data="close_message")
                 ]
             ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
+             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            try:
+             try:
                 await query.delete_message()
-            except Exception:
+             except Exception:
                 pass
             
-            try:
+             try:
                 await context.bot.copy_message(
                     chat_id=query.message.chat_id,
                     from_chat_id=WELCOME_SOURCE_CHANNEL,
                     message_id=WELCOME_SOURCE_MESSAGE_ID,
                     reply_markup=reply_markup
                 )
-            except Exception as e:
+             except Exception as e:
                 logger.error(f"ᴇʀʀᴏʀ ᴄᴏᴘʏɪɴɢ ᴠᴇʀɪғɪᴇᴅ ᴡᴇʟᴄᴏᴍᴇ ᴍᴇssᴀɢᴇ: {e}")
                 fallback_text = r"✅ **sᴜʙsᴄʀɪᴘᴛɪᴏɴ ᴠᴇʀɪғɪᴇᴅ\!**\n\nᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ ʙᴏᴛ\!"
                 await context.bot.send_message(query.message.chat_id, fallback_text, parse_mode='MarkdownV2', reply_markup=reply_markup)
@@ -813,10 +814,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
             
+        # FIX: Changed to HTML to prevent MarkdownV2 escaping issue from characters like '`' in the example.
         await context.bot.send_message(
             chat_id=query.message.chat_id,
-            text="📺 **ADD FORCE SUBSCRIPTION CHANNEL**\n\nPlease send me the channel username (starting with @):\n\nExample: `@Beat_Anime_Ocean`",
-            parse_mode='MarkdownV2',
+            text="📺 <b>ADD FORCE SUBSCRIPTION CHANNEL</b>\n\nPlease send me the channel username (starting with @):\n\nExample: <code>@Beat_Anime_Ocean</code>",
+            parse_mode='HTML',
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 CANCEL", callback_data="manage_force_sub")]])
         )
     
@@ -903,9 +905,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         about_me_text = r"""
 *About Us\.*
 
-▣ **Made for: @Beat\_Anime\_Ocean**
-▣ **Owned by: @Beat\_Anime\_Ocean**
-▣ **Developer: @Beat\_Anime\_Ocean**
+▣**Made for: @Beat\_Anime\_Ocean**
+▣**Owned by: @Beat\_Anime\_Ocean**
+▣**Developer: @Beat\_Anime\_Ocean**
 
 _Adios \!\!_
 """
@@ -951,7 +953,7 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
         context.user_data['channel_username'] = text
         user_states[user_id] = ADD_CHANNEL_TITLE
         
-        # FIX: Changed to HTML to avoid MarkdownV2 escaping issues (error: character '{' is reserved).
+        # FIX: Changed to HTML to prevent MarkdownV2 escaping issue.
         await update.message.reply_text(
             "📝 <b>STEP 2: Channel Title</b>\n\nNow please send me the display title for this channel:\n\nExample: <code>Anime Ocean Channel</code>",
             parse_mode='HTML',
@@ -968,7 +970,7 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
             if 'channel_username' in context.user_data:
                 del context.user_data['channel_username']
             
-            # FIX: Changed to HTML to avoid MarkdownV2 escaping issues in the summary.
+            # FIX: Changed to HTML to prevent MarkdownV2 escaping issue from user-inputted characters.
             await update.message.reply_text(
                 f"✅ <b>FORCE SUB CHANNEL ADDED SUCCESSFULLY!</b>\n\n"
                 f"<b>Username:</b> <code>{channel_username}</code>\n"
