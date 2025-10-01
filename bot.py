@@ -670,7 +670,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 await query.delete_message()
             except Exception:
-                pass
+                    pass
             
             try:
                 await context.bot.copy_message(
@@ -1097,6 +1097,7 @@ if __name__ == '__main__':
         os.environ['PORT'] = str(8080)
     
     main()
+
 
 
 
