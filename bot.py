@@ -295,7 +295,8 @@ async def show_force_sub_management(query, context):
         for channel_username, channel_title in channels:
             safe_title = escape_markdown_v2(channel_title)
             safe_username = escape_markdown_v2(channel_username)
-            channels_text += rf"• {safe_title} (`{safe_username}`)\n"
+            # FIX: Properly escape MarkdownV2 characters for the username display
+            channels_text += rf"• {safe_title} \({safe_username}\)\n" # Escaping () for MarkdownV2
 
     keyboard = [
         [InlineKeyboardButton("➕ ADD NEW CHANNEL", callback_data="add_channel_start")]
@@ -447,7 +448,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            channels_text = "\n".join([f"• {escape_markdown_v2(title)} (`{escape_markdown_v2(username)}`)" for username, title in not_joined_channels])
+            channels_text = "\n".join([f"• {escape_markdown_v2(title)} \(`{escape_markdown_v2(username)}`\)" for username, title in not_joined_channels])
             
             await update.message.reply_text(
                 rf"📢 **ᴘʟᴇᴀsᴇ ᴊᴏɪɴ ᴏᴜʀ ᴄʜᴀɴɴᴇʟs ᴛᴏ ᴜsᴇ ᴛʜɪs ʙᴏᴛ\!**\n\n"
@@ -627,7 +628,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
             
-        # FIX: Switched to HTML to avoid 400 Bad Request error (from periods/parentheses in the message)
+        # FIX: Switched to HTML to avoid 400 Bad Request error (from periods in the message)
         await context.bot.send_message(
             chat_id=query.message.chat_id,
             text="📢 <b>MEDIA BROADCAST MODE</b>\n\nPlease <b>forward</b> the message (image, video, file, sticker, or text) you wish to broadcast <i>now</i>.\n\n<b>Note:</b> Any message you send next will be copied to all users.",
@@ -641,24 +642,22 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if not_joined_channels:
             channels_text = "\n".join([f"• {escape_markdown_v2(title)}" for _, title in not_joined_channels])
-            # FIX: Corrected redundant escaping
             await query.edit_message_text(
-                rf"❌ **ʏᴏᴜ ʜᴀᴠᴇɴ'ᴛ ᴊᴏɪɴᴇᴅ ᴀʟʟ ʀᴇǫᴜɪʀᴇᴅ ᴄʜᴀɴɴᴇʟs\!**\n\n"
+                rf"❌ **ʏᴏᴜ ʜᴀᴠᴇɴ'ᴛ ᴊᴏɪɴᴇᴅ ᴀʟʟ ʀᴇǫᴜɪʀᴇᴅ ᴄʜᴀɴɴᴇʟs**\!**\n\n"
                 rf"**sᴛɪʟʟ ᴍɪssɪɴɢ:**\n{channels_text}\n\n"
                 r"ᴘʟᴇᴀsᴇ ᴊᴏɪɴ ᴀʟʟ ᴄʜᴀɴɴᴇʟs ᴀɴᴅ ᴛʀʏ ᴀɢᴀɪɴ\.",
                 parse_mode='MarkdownV2'
             )
             return
         
-        if is_admin(user.id):
+        if is_admin(user_id):
             try:
                 await query.delete_message()
             except Exception:
                 pass
             await send_admin_menu(query.message.chat_id, context)
         else:
-            # FIX: Corrected inconsistent indentation (was the source of IndentationError)
-            keyboard = [
+             keyboard = [
                 [InlineKeyboardButton("ᴀɴɪᴍᴇ ᴄʜᴀɴɴᴇʟ", url=PUBLIC_ANIME_CHANNEL_URL)], 
                 [InlineKeyboardButton("ᴄᴏɴᴛᴀᴄᴛ ᴀᴅᴍɪɴ", url=f"https://t.me/{ADMIN_CONTACT_USERNAME}")],
                 [InlineKeyboardButton("ʀᴇǫᴜᴇsᴛ ᴀɴɪᴍᴇ ᴄʜᴀɴɴᴇʟ", url=REQUEST_CHANNEL_URL)],
@@ -667,21 +666,21 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     InlineKeyboardButton("ᴄʟᴏsᴇ", callback_data="close_message")
                 ]
             ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
+             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            try:
+             try:
                 await query.delete_message()
-            except Exception:
+             except Exception:
                 pass
             
-            try:
+             try:
                 await context.bot.copy_message(
                     chat_id=query.message.chat_id,
                     from_chat_id=WELCOME_SOURCE_CHANNEL,
                     message_id=WELCOME_SOURCE_MESSAGE_ID,
-                    reply_markup=reply_markup
+                    reply_markup=reply_markup # FIXED INDENTATION HERE
                 )
-            except Exception as e:
+             except Exception as e:
                 logger.error(f"ᴇʀʀᴏʀ ᴄᴏᴘʏɪɴɢ ᴠᴇʀɪғɪᴇᴅ ᴡᴇʟᴄᴏᴍᴇ ᴍᴇssᴀɢᴇ: {e}")
                 fallback_text = r"✅ **sᴜʙsᴄʀɪᴘᴛɪᴏɴ ᴠᴇʀɪғɪᴇᴅ\!**\n\nᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ ʙᴏᴛ\!"
                 await context.bot.send_message(query.message.chat_id, fallback_text, parse_mode='MarkdownV2', reply_markup=reply_markup)
@@ -694,7 +693,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not_joined_channels:
             channels_text = "\n".join([f"• {escape_markdown_v2(title)}" for _, title in not_joined_channels])
             await query.edit_message_text(
-                rf"❌ **ʏᴏᴜ ʜᴀᴠᴇɴ'ᴛ ᴊᴏɪɴᴇᴅ ᴀʟʟ ʀᴇǫᴜɪʀᴇᴅ ᴄʜᴀɴɴᴇʟs\!**\n\n"
+                rf"❌ **ʏᴏᴜ ʜᴀᴠᴇɴ'ᴛ ᴊᴏɪɴᴇᴅ ᴀʟʟ ʀᴇǫᴜɪʀᴇᴅ ᴄʜᴀɴɴᴇʟs**\!**\n\n"
                 rf"**sᴛɪʟʟ ᴍɪssɪɴɢ:**\n{channels_text}\n\n"
                 r"ᴘʟᴇᴀsᴇ ᴊᴏɪɴ ᴀʟʟ ᴄʜᴀɴɴᴇʟs ᴀɴᴅ ᴛʀʏ ᴀɢᴀɪɴ\.",
                 parse_mode='MarkdownV2'
@@ -988,11 +987,10 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
         
         # Support both @username and numeric IDs (for private channels)
         if not (channel_identifier.startswith('@') or channel_identifier.startswith('-100') or channel_identifier.lstrip('-').isdigit()):
-            # FIX: Escaped colons and hyphen for MarkdownV2 compliance
             await update.message.reply_text(
-                r"❌ Invalid format\. Please send either\:\n"
-                r"• Channel username\: `@YourChannel`\n"
-                r"• Private channel ID\: `\-1001234567890`\n\n"
+                r"❌ Invalid format\. Please send either:\n"
+                r"• Channel username: `@YourChannel`\n"
+                r"• Private channel ID: `-1001234567890`\n\n"
                 r"Try again\:",
                 parse_mode='MarkdownV2'
             )
@@ -1020,7 +1018,7 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
             logger.error(f"Error accessing channel {channel_identifier}: {e}")
             await update.message.reply_text(
                 r"❌ **Cannot access this channel\!**\n\n"
-                r"Please ensure\:\n"
+                r"Please ensure:\n"
                 r"1\. The bot is added to the channel as an admin\n"
                 r"2\. The bot has permission to create invite links\n"
                 r"3\. The channel ID/username is correct",
