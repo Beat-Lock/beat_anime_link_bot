@@ -1,10 +1,10 @@
 import os
 import logging
+import sqlite3
 import secrets
 import re
 import requests
 import time
-import sqlite3
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
@@ -43,21 +43,11 @@ def keep_alive():
     """Pings a reliable external URL every 14 minutes to prevent sleep"""
     while True:
         try:
-            # Sleep for 14 minutes (840 seconds)
-            time.sleep(840) 
-            
-            # Pings a reliable external site to generate outgoing traffic
+            time.sleep(840)
             response = requests.get("https://www.google.com/robots.txt", timeout=10)
             logger.info(f"Keep-alive: Sent outgoing ping ({response.status_code}). Bot remains active 24/7.")
-
         except Exception as e:
             logger.error(f"Keep-alive error: {e}")
-
-def escape_markdown_v2(text):
-    """Helper function to escape characters reserved in MarkdownV2."""
-    escape_chars = r'_*[]()~`>#+-=|{}.!'
-    text = text.replace('\\', '\\\\')
-    return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
 
 def init_db():
     conn = sqlite3.connect('bot_data.db')
@@ -268,8 +258,10 @@ async def send_admin_stats(query, context):
         f"<i>Last Cleanup:</i> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     )
     
-    keyboard = [[InlineKeyboardButton("🔄 REFRESH", callback_data="admin_stats")],
-                [InlineKeyboardButton("🔙 BACK", callback_data="admin_back")]]
+    keyboard = [
+        [InlineKeyboardButton("🔄 REFRESH", callback_data="admin_stats")],
+        [InlineKeyboardButton("🔙 BACK", callback_data="admin_back")]
+    ]
     
     await context.bot.send_message(
         chat_id=query.message.chat_id, 
@@ -296,7 +288,7 @@ async def show_force_sub_management(query, context):
     
     if channels:
         channel_buttons = [
-            InlineKeyboardButton(channel_title, callback_data=f"channel_{channel_username}") 
+            InlineKeyboardButton(channel_title, callback_data=f"channel_{channel_username.replace('@', '')}") 
             for channel_username, channel_title in channels
         ]
         
@@ -321,7 +313,8 @@ async def show_force_sub_management(query, context):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-async def show_channel_details(query, context, channel_username):
+async def show_channel_details(query, context, channel_username_clean):
+    channel_username = '@' + channel_username_clean
     channel_info = get_force_sub_channel_info(channel_username)
     
     if not channel_info:
@@ -345,8 +338,8 @@ async def show_channel_details(query, context, channel_username):
     """
     
     keyboard = [
-        [InlineKeyboardButton("🔗 GENERATE TEMP LINK", callback_data=f"genlink_{channel_username}")],
-        [InlineKeyboardButton("🗑️ DELETE CHANNEL", callback_data=f"delete_{channel_username}")],
+        [InlineKeyboardButton("🔗 GENERATE TEMP LINK", callback_data=f"genlink_{channel_username_clean}")],
+        [InlineKeyboardButton("🗑️ DELETE CHANNEL", callback_data=f"delete_{channel_username_clean}")],
         [InlineKeyboardButton("🔙 BACK TO MANAGEMENT", callback_data="manage_force_sub")]
     ]
     
@@ -520,7 +513,6 @@ async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT
         return
     
     try:
-        # Convert to int if it's a numeric ID (private channel)
         if channel_identifier.lstrip('-').isdigit():
             channel_identifier = int(channel_identifier)
         
@@ -571,7 +563,7 @@ async def broadcast_message_to_all_users(update: Update, context: ContextTypes.D
             success_count += 1
         except Exception:
             pass
-        await asyncio.sleep(0.1) 
+        await asyncio.sleep(0.1)
     
     await context.bot.send_message(
         chat_id=update.effective_chat.id, 
@@ -639,7 +631,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
             await send_admin_menu(query.message.chat_id, context)
         else:
-             keyboard = [
+            keyboard = [
                 [InlineKeyboardButton("🎬 Anime Channel", url=PUBLIC_ANIME_CHANNEL_URL)], 
                 [InlineKeyboardButton("📞 Contact Admin", url=f"https://t.me/{ADMIN_CONTACT_USERNAME}")],
                 [InlineKeyboardButton("📋 Request Channel", url=REQUEST_CHANNEL_URL)],
@@ -689,7 +681,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         channel_identifier = link_info[0]
         
         try:
-            # Convert to int if it's a numeric ID (private channel)
             if channel_identifier.lstrip('-').isdigit():
                 channel_identifier = int(channel_identifier)
             
@@ -712,7 +703,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keyboard = [[InlineKeyboardButton("🔗 Request to Join", url=invite_link.invite_link)]]
 
             try:
-                await query.delete_message() 
+                await query.delete_message()
             except Exception:
                 pass
                 
@@ -807,13 +798,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not is_admin(user_id):
             await query.edit_message_text("❌ Admin only.", parse_mode='HTML')
             return
-        channel_username = data[7:]
+        channel_username_clean = data[7:]
+        channel_username = '@' + channel_username_clean
+        
         channel_info = get_force_sub_channel_info(channel_username)
         
         if channel_info:
             keyboard = [
-                [InlineKeyboardButton("✅ YES, DELETE", callback_data=f"confirm_delete_{channel_username}")],
-                [InlineKeyboardButton("❌ NO, CANCEL", callback_data=f"channel_{channel_username}")]
+                [InlineKeyboardButton("✅ YES, DELETE", callback_data=f"confirm_delete_{channel_username_clean}")],
+                [InlineKeyboardButton("❌ NO, CANCEL", callback_data=f"channel_{channel_username_clean}")]
             ]
             
             await query.edit_message_text(
@@ -830,7 +823,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not is_admin(user_id):
             await query.edit_message_text("❌ Admin only.", parse_mode='HTML')
             return
-        channel_username = data[15:]
+        channel_username_clean = data[15:]
+        channel_username = '@' + channel_username_clean
+        
         delete_force_sub_channel(channel_username)
         
         await query.edit_message_text(
@@ -845,14 +840,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await send_admin_menu(query.message.chat_id, context, query)
         else:
             keyboard = [
-               [InlineKeyboardButton("🎬 Anime Channel", url=PUBLIC_ANIME_CHANNEL_URL)], 
-               [InlineKeyboardButton("📞 Contact Admin", url=f"https://t.me/{ADMIN_CONTACT_USERNAME}")],
-               [InlineKeyboardButton("📋 Request Channel", url=REQUEST_CHANNEL_URL)],
-               [
-                   InlineKeyboardButton("ℹ️ About", callback_data="about_bot"),
-                   InlineKeyboardButton("❌ Close", callback_data="close_message")
-               ]
-           ]
+                [InlineKeyboardButton("🎬 Anime Channel", url=PUBLIC_ANIME_CHANNEL_URL)], 
+                [InlineKeyboardButton("📞 Contact Admin", url=f"https://t.me/{ADMIN_CONTACT_USERNAME}")],
+                [InlineKeyboardButton("📋 Request Channel", url=REQUEST_CHANNEL_URL)],
+                [
+                    InlineKeyboardButton("ℹ️ About", callback_data="about_bot"),
+                    InlineKeyboardButton("❌ Close", callback_data="close_message")
+                ]
+            ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             try:
@@ -882,7 +877,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 <i>Adios !!</i>
 """
-        keyboard = [[InlineKeyboardButton("🔙 BACK", callback_data="user_back")]] 
+        keyboard = [[InlineKeyboardButton("🔙 BACK", callback_data="user_back")]]
         
         try:
             await query.delete_message()
@@ -954,7 +949,6 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
     elif state == GENERATE_LINK_CHANNEL_USERNAME:
         channel_identifier = text.strip()
         
-        # Support both @username and numeric IDs (for private channels)
         if not (channel_identifier.startswith('@') or channel_identifier.startswith('-100') or channel_identifier.lstrip('-').isdigit()):
             await update.message.reply_text(
                 "❌ Invalid format. Please send either:\n"
@@ -964,19 +958,10 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
                 parse_mode='HTML'
             )
             return
-        
-        # Convert numeric string to integer if it's a channel ID
-        if channel_identifier.lstrip('-').isdigit():
-            try:
-                channel_identifier_int = int(channel_identifier)
-            except ValueError:
-                await update.message.reply_text("❌ Invalid channel ID format. Try again:", parse_mode='HTML')
-                return
             
         if user_id in user_states:
             del user_states[user_id]
         
-        # Verify bot has access to the channel
         try:
             chat = await context.bot.get_chat(channel_identifier)
             channel_title = chat.title
@@ -992,7 +977,6 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
             )
             return
         
-        # Store the channel identifier (as string)
         link_id = generate_link_id(str(channel_identifier), user_id)
         bot_username = context.bot.username
         
