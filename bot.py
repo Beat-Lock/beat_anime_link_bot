@@ -56,7 +56,6 @@ def keep_alive():
 def escape_markdown_v2(text):
     """Helper function to escape characters reserved in MarkdownV2."""
     escape_chars = r'_*[]()~`>#+-=|{}.!'
-    # Escape backslash first, then all other reserved characters
     text = text.replace('\\', '\\\\')
     return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
 
@@ -293,13 +292,10 @@ async def show_force_sub_management(query, context):
         channels_text += r"No channels configured currently\."
     else:
         channels_text += r"Configured Channels:\n"
-        # Fix: Changed the output to be less prone to MarkdownV2 parsing errors
         for channel_username, channel_title in channels:
             safe_title = escape_markdown_v2(channel_title)
-            # Remove the @ for escaping, then re-add it in the string
-            safe_username = escape_markdown_v2(channel_username[1:])
-            # Changed the backticks to just parentheses for simplicity and reliability
-            channels_text += f"• {safe_title} (\\@{safe_username})\n"
+            safe_username = escape_markdown_v2(channel_username)
+            channels_text += rf"• {safe_title} (`{safe_username}`)\n"
 
     keyboard = [
         [InlineKeyboardButton("➕ ADD NEW CHANNEL", callback_data="add_channel_start")]
@@ -390,7 +386,6 @@ async def send_user_management(query, context, offset=0):
             except:
                 formatted_date = "Unknown"
             
-            # Using HTML for user management for robustness
             user_list_text += f"<b>{display_name}</b> (<code>{display_username}</code>)\n"
             user_list_text += f"Joined: {formatted_date}\n\n"
     
@@ -446,15 +441,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not_joined_channels:
             keyboard = []
             for channel_username, channel_title in not_joined_channels:
-                # Ensure the link is correct (remove leading @ for the URL)
                 keyboard.append([InlineKeyboardButton(f"📢 ᴊᴏɪɴ {channel_title}", url=f"https://t.me/{channel_username[1:]}")])
             
             keyboard.append([InlineKeyboardButton("✅ ᴠᴇʀɪғʏ sᴜʙsᴄʀɪᴘᴛɪᴏɴ", callback_data="verify_subscription")])
             
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            # FIX: Simplified the output for MarkdownV2 escaping
-            channels_text = "\n".join([f"• {escape_markdown_v2(title)} (\\@{escape_markdown_v2(username[1:])})" for username, title in not_joined_channels])
+            channels_text = "\n".join([f"• {escape_markdown_v2(title)} (`{escape_markdown_v2(username)}`)" for username, title in not_joined_channels])
             
             await update.message.reply_text(
                 rf"📢 **ᴘʟᴇᴀsᴇ ᴊᴏɪɴ ᴏᴜʀ ᴄʜᴀɴɴᴇʟs ᴛᴏ ᴜsᴇ ᴛʜɪs ʙᴏᴛ\!**\n\n"
@@ -534,7 +527,7 @@ async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT
     
     try:
         # Convert to int if it's a numeric ID (private channel)
-        if str(channel_identifier).lstrip('-').isdigit():
+        if channel_identifier.lstrip('-').isdigit():
             channel_identifier = int(channel_identifier)
         
         chat = await context.bot.get_chat(channel_identifier)
@@ -544,8 +537,7 @@ async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT
         invite_link = await context.bot.create_chat_invite_link(
             chat.id, 
             member_limit=1,
-            # Use datetime object for expire_date which is more reliable than timestamp
-            expire_date=datetime.now() + timedelta(minutes=5)
+            expire_date=datetime.now().timestamp() + 300
         )
         
         mark_link_used(link_id)
@@ -635,7 +627,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
             
-        # FIX: Switched to HTML to avoid 400 Bad Request error (from periods in the message)
+        # FIX: Switched to HTML to avoid 400 Bad Request error (from periods/parentheses in the message)
         await context.bot.send_message(
             chat_id=query.message.chat_id,
             text="📢 <b>MEDIA BROADCAST MODE</b>\n\nPlease <b>forward</b> the message (image, video, file, sticker, or text) you wish to broadcast <i>now</i>.\n\n<b>Note:</b> Any message you send next will be copied to all users.",
@@ -648,25 +640,25 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         not_joined_channels = await check_force_subscription(user_id, context)
         
         if not_joined_channels:
-            # FIX: Simplified the output for MarkdownV2 escaping
-            channels_text = "\n".join([f"• {escape_markdown_v2(title)} (\\@{escape_markdown_v2(username[1:])})" for username, title in not_joined_channels])
-
+            channels_text = "\n".join([f"• {escape_markdown_v2(title)}" for _, title in not_joined_channels])
+            # FIX: Corrected redundant escaping
             await query.edit_message_text(
-                rf"❌ **ʏᴏᴜ ʜᴀᴠᴇɴ'ᴛ ᴊᴏɪɴᴇᴅ ᴀʟʟ ʀᴇǫᴜɪʀᴇᴅ ᴄʜᴀɴɴᴇʟs**\!**\n\n"
+                rf"❌ **ʏᴏᴜ ʜᴀᴠᴇɴ'ᴛ ᴊᴏɪɴᴇᴅ ᴀʟʟ ʀᴇǫᴜɪʀᴇᴅ ᴄʜᴀɴɴᴇʟs\!**\n\n"
                 rf"**sᴛɪʟʟ ᴍɪssɪɴɢ:**\n{channels_text}\n\n"
                 r"ᴘʟᴇᴀsᴇ ᴊᴏɪɴ ᴀʟʟ ᴄʜᴀɴɴᴇʟs ᴀɴᴅ ᴛʀʏ ᴀɢᴀɪɴ\.",
                 parse_mode='MarkdownV2'
             )
             return
         
-        if is_admin(user_id):
+        if is_admin(user.id):
             try:
                 await query.delete_message()
             except Exception:
                 pass
             await send_admin_menu(query.message.chat_id, context)
         else:
-             keyboard = [
+            # FIX: Corrected inconsistent indentation (was the source of IndentationError)
+            keyboard = [
                 [InlineKeyboardButton("ᴀɴɪᴍᴇ ᴄʜᴀɴɴᴇʟ", url=PUBLIC_ANIME_CHANNEL_URL)], 
                 [InlineKeyboardButton("ᴄᴏɴᴛᴀᴄᴛ ᴀᴅᴍɪɴ", url=f"https://t.me/{ADMIN_CONTACT_USERNAME}")],
                 [InlineKeyboardButton("ʀᴇǫᴜᴇsᴛ ᴀɴɪᴍᴇ ᴄʜᴀɴɴᴇʟ", url=REQUEST_CHANNEL_URL)],
@@ -702,7 +694,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not_joined_channels:
             channels_text = "\n".join([f"• {escape_markdown_v2(title)}" for _, title in not_joined_channels])
             await query.edit_message_text(
-                rf"❌ **ʏᴏᴜ ʜᴀᴠᴇɴ'ᴛ ᴊᴏɪɴᴇᴅ ᴀʟʟ ʀᴇǫᴜɪʀᴇᴅ ᴄʜᴀɴɴᴇʟs**\!**\n\n"
+                rf"❌ **ʏᴏᴜ ʜᴀᴠᴇɴ'ᴛ ᴊᴏɪɴᴇᴅ ᴀʟʟ ʀᴇǫᴜɪʀᴇᴅ ᴄʜᴀɴɴᴇʟs\!**\n\n"
                 rf"**sᴛɪʟʟ ᴍɪssɪɴɢ:**\n{channels_text}\n\n"
                 r"ᴘʟᴇᴀsᴇ ᴊᴏɪɴ ᴀʟʟ ᴄʜᴀɴɴᴇʟs ᴀɴᴅ ᴛʀʏ ᴀɢᴀɪɴ\.",
                 parse_mode='MarkdownV2'
@@ -718,14 +710,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         try:
             # Convert to int if it's a numeric ID (private channel)
-            if str(channel_identifier).lstrip('-').isdigit():
+            if channel_identifier.lstrip('-').isdigit():
                 channel_identifier = int(channel_identifier)
             
             chat = await context.bot.get_chat(channel_identifier)
             invite_link = await context.bot.create_chat_invite_link(
                 chat.id, 
                 member_limit=1,
-                expire_date=datetime.now() + timedelta(minutes=5)
+                expire_date=datetime.now().timestamp() + 300
             )
             
             mark_link_used(link_id)
@@ -950,7 +942,7 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
             
     text = update.message.text
     if text is None:
-        await update.message.reply_text(r"❌ Please send a text message as requested\.", parse_mode='MarkdownV2')
+        await update.message.reply_text("❌ Please send a text message as requested.", parse_mode='MarkdownV2')
         return
 
     if state == ADD_CHANNEL_USERNAME:
@@ -996,10 +988,11 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
         
         # Support both @username and numeric IDs (for private channels)
         if not (channel_identifier.startswith('@') or channel_identifier.startswith('-100') or channel_identifier.lstrip('-').isdigit()):
+            # FIX: Escaped colons and hyphen for MarkdownV2 compliance
             await update.message.reply_text(
-                r"❌ Invalid format\. Please send either:\n"
-                r"• Channel username: `@YourChannel`\n"
-                r"• Private channel ID: `-1001234567890`\n\n"
+                r"❌ Invalid format\. Please send either\:\n"
+                r"• Channel username\: `@YourChannel`\n"
+                r"• Private channel ID\: `\-1001234567890`\n\n"
                 r"Try again\:",
                 parse_mode='MarkdownV2'
             )
@@ -1027,7 +1020,7 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
             logger.error(f"Error accessing channel {channel_identifier}: {e}")
             await update.message.reply_text(
                 r"❌ **Cannot access this channel\!**\n\n"
-                r"Please ensure:\n"
+                r"Please ensure\:\n"
                 r"1\. The bot is added to the channel as an admin\n"
                 r"2\. The bot has permission to create invite links\n"
                 r"3\. The channel ID/username is correct",
@@ -1081,7 +1074,6 @@ def main():
     
     job_queue = application.job_queue
     if job_queue: 
-        # Run cleanup_task every 10 minutes (600 seconds)
         job_queue.run_repeating(cleanup_task, interval=600, first=10)
     else:
         logger.warning("JobQueue is not available.")
@@ -1092,7 +1084,6 @@ def main():
         logger.info("✅ Keep-alive service started - Bot will remain active 24/7")
         
         print(f"🤖 Starting Webhook on port {PORT}")
-        # The URL path for the webhook must match the BOT_TOKEN
         print(f"🌐 Webhook URL: {WEBHOOK_URL + BOT_TOKEN}")
         application.run_webhook(
             listen="0.0.0.0",
@@ -1102,7 +1093,7 @@ def main():
         )
     else:
         print("🤖 Starting in Polling Mode...")
-        application.run_polling(poll_interval=1.0, timeout=20) # Added timeout and interval for robustness
+        application.run_polling()
 
 if __name__ == '__main__':
     if 'PORT' not in os.environ:
