@@ -10,3 +10,5 @@ services:
         value: '7877393813:AAGKvpRBlYWwO70B9pQpD29BhYCXwiZGngw'
       - key: ADMIN_ID
         value: '829342319'
+      - key: PORT
+        value: '8080'
