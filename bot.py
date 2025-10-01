@@ -295,8 +295,8 @@ async def show_force_sub_management(query, context):
         for channel_username, channel_title in channels:
             safe_title = escape_markdown_v2(channel_title)
             safe_username = escape_markdown_v2(channel_username)
-            # FIX: Properly escape MarkdownV2 characters for the username display
-            channels_text += rf"• {safe_title} \({safe_username}\)\n" # Escaping () for MarkdownV2
+            # FIX: Escape parentheses \( and \) for MarkdownV2 inside f-string
+            channels_text += rf"• {safe_title} \(`{safe_username}`\)\n"
 
     keyboard = [
         [InlineKeyboardButton("➕ ADD NEW CHANNEL", callback_data="add_channel_start")]
@@ -650,14 +650,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
-        if is_admin(user_id):
+        if is_admin(user.id):
             try:
                 await query.delete_message()
             except Exception:
                 pass
             await send_admin_menu(query.message.chat_id, context)
         else:
-             keyboard = [
+            keyboard = [
                 [InlineKeyboardButton("ᴀɴɪᴍᴇ ᴄʜᴀɴɴᴇʟ", url=PUBLIC_ANIME_CHANNEL_URL)], 
                 [InlineKeyboardButton("ᴄᴏɴᴛᴀᴄᴛ ᴀᴅᴍɪɴ", url=f"https://t.me/{ADMIN_CONTACT_USERNAME}")],
                 [InlineKeyboardButton("ʀᴇǫᴜᴇsᴛ ᴀɴɪᴍᴇ ᴄʜᴀɴɴᴇʟ", url=REQUEST_CHANNEL_URL)],
@@ -666,21 +666,21 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     InlineKeyboardButton("ᴄʟᴏsᴇ", callback_data="close_message")
                 ]
             ]
-             reply_markup = InlineKeyboardMarkup(keyboard)
+            reply_markup = InlineKeyboardMarkup(keyboard)
             
-             try:
+            try:
                 await query.delete_message()
-             except Exception:
+            except Exception:
                 pass
             
-             try:
+            try:
                 await context.bot.copy_message(
                     chat_id=query.message.chat_id,
                     from_chat_id=WELCOME_SOURCE_CHANNEL,
                     message_id=WELCOME_SOURCE_MESSAGE_ID,
                     reply_markup=reply_markup # FIXED INDENTATION HERE
                 )
-             except Exception as e:
+            except Exception as e:
                 logger.error(f"ᴇʀʀᴏʀ ᴄᴏᴘʏɪɴɢ ᴠᴇʀɪғɪᴇᴅ ᴡᴇʟᴄᴏᴍᴇ ᴍᴇssᴀɢᴇ: {e}")
                 fallback_text = r"✅ **sᴜʙsᴄʀɪᴘᴛɪᴏɴ ᴠᴇʀɪғɪᴇᴅ\!**\n\nᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ ʙᴏᴛ\!"
                 await context.bot.send_message(query.message.chat_id, fallback_text, parse_mode='MarkdownV2', reply_markup=reply_markup)
