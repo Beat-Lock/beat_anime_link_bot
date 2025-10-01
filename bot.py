@@ -1,8 +1,6 @@
 import os
 import logging
-import sqlite3
 import secrets
-import re
 import requests
 import time
 from datetime import datetime, timedelta
@@ -10,6 +8,8 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 import asyncio
 from threading import Thread
+import psycopg2
+from urllib.parse import urlparse
 
 # Configure logging
 logging.basicConfig(
@@ -19,8 +19,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Bot configuration
-BOT_TOKEN = '7877393813:AAEqVD-Ar6M4O3yg6h2ZuNUN_PPY4NRVr10'
-ADMIN_ID = 829342319
+BOT_TOKEN = os.environ.get('BOT_TOKEN', '7877393813:AAGKvpRBlYWwO70B9pQpD29BhYCXwiZGngw')
+ADMIN_ID = int(os.environ.get('ADMIN_ID', 829342319))
 LINK_EXPIRY_MINUTES = 5
 
 # Global variables for webhook configuration
@@ -38,6 +38,282 @@ ADMIN_CONTACT_USERNAME = "Beat_Anime_Ocean"
 ADD_CHANNEL_USERNAME, ADD_CHANNEL_TITLE, GENERATE_LINK_CHANNEL_USERNAME, PENDING_BROADCAST = range(4)
 user_states = {}
 
+# Database configuration
+def get_db_connection():
+    """Get database connection from environment variable"""
+    database_url = os.environ.get('DATABASE_URL')
+    
+    if database_url:
+        # Parse the database URL (Render provides this)
+        result = urlparse(database_url)
+        return psycopg2.connect(
+            database=result.path[1:],
+            user=result.username,
+            password=result.password,
+            host=result.hostname,
+            port=result.port
+        )
+    else:
+        # Fallback to SQLite for local development
+        import sqlite3
+        return sqlite3.connect('bot_data.db')
+
+def init_db():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Users table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            user_id BIGINT PRIMARY KEY,
+            username TEXT,
+            first_name TEXT,
+            last_name TEXT,
+            joined_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            is_active BOOLEAN DEFAULT TRUE
+        )
+    ''')
+    
+    # Force sub channels table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS force_sub_channels (
+            channel_id SERIAL PRIMARY KEY,
+            channel_username TEXT UNIQUE,
+            channel_title TEXT,
+            added_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            is_active BOOLEAN DEFAULT TRUE
+        )
+    ''')
+    
+    # Generated links table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS generated_links (
+            link_id TEXT PRIMARY KEY,
+            channel_username TEXT,
+            user_id BIGINT,
+            created_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            is_used BOOLEAN DEFAULT FALSE,
+            is_permanent BOOLEAN DEFAULT FALSE,
+            parent_link_id TEXT DEFAULT NULL
+        )
+    ''')
+    
+    conn.commit()
+    conn.close()
+    logger.info("Database tables initialized/verified")
+
+def add_user(user_id, username, first_name, last_name):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            INSERT INTO users (user_id, username, first_name, last_name) 
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (user_id) 
+            DO UPDATE SET 
+                username = EXCLUDED.username,
+                first_name = EXCLUDED.first_name,
+                last_name = EXCLUDED.last_name,
+                is_active = TRUE
+        ''', (user_id, username, first_name, last_name))
+        conn.commit()
+    except Exception as e:
+        logger.error(f"Error adding user: {e}")
+    finally:
+        conn.close()
+
+def get_all_users(limit=20, offset=0):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        if limit is None:
+            cursor.execute('''
+                SELECT user_id, username, first_name, last_name, joined_date 
+                FROM users WHERE is_active = TRUE 
+                ORDER BY joined_date DESC
+            ''')
+        else:
+            cursor.execute('''
+                SELECT user_id, username, first_name, last_name, joined_date 
+                FROM users WHERE is_active = TRUE 
+                ORDER BY joined_date DESC LIMIT %s OFFSET %s
+            ''', (limit, offset))
+        users = cursor.fetchall()
+        return users
+    except Exception as e:
+        logger.error(f"Error getting users: {e}")
+        return []
+    finally:
+        conn.close()
+
+def get_user_count():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('SELECT COUNT(*) FROM users WHERE is_active = TRUE')
+        count = cursor.fetchone()[0]
+        return count
+    except Exception as e:
+        logger.error(f"Error getting user count: {e}")
+        return 0
+    finally:
+        conn.close()
+
+def get_force_sub_channel_count():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('SELECT COUNT(*) FROM force_sub_channels WHERE is_active = TRUE')
+        count = cursor.fetchone()[0]
+        return count
+    except Exception as e:
+        logger.error(f"Error getting channel count: {e}")
+        return 0
+    finally:
+        conn.close()
+
+def add_force_sub_channel(channel_username, channel_title):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            INSERT INTO force_sub_channels (channel_username, channel_title) 
+            VALUES (%s, %s)
+            ON CONFLICT (channel_username) 
+            DO UPDATE SET 
+                channel_title = EXCLUDED.channel_title,
+                is_active = TRUE
+        ''', (channel_username, channel_title))
+        conn.commit()
+        return cursor.rowcount > 0
+    except Exception as e:
+        logger.error(f"Error adding channel: {e}")
+        return False
+    finally:
+        conn.close()
+
+def get_all_force_sub_channels():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            SELECT channel_username, channel_title 
+            FROM force_sub_channels 
+            WHERE is_active = TRUE 
+            ORDER BY channel_title
+        ''')
+        channels = cursor.fetchall()
+        return channels
+    except Exception as e:
+        logger.error(f"Error getting channels: {e}")
+        return []
+    finally:
+        conn.close()
+
+def get_force_sub_channel_info(channel_username):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            SELECT channel_username, channel_title 
+            FROM force_sub_channels 
+            WHERE channel_username = %s AND is_active = TRUE
+        ''', (channel_username,))
+        channel = cursor.fetchone()
+        return channel
+    except Exception as e:
+        logger.error(f"Error getting channel info: {e}")
+        return None
+    finally:
+        conn.close()
+
+def delete_force_sub_channel(channel_username):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            UPDATE force_sub_channels 
+            SET is_active = FALSE 
+            WHERE channel_username = %s
+        ''', (channel_username,))
+        conn.commit()
+    except Exception as e:
+        logger.error(f"Error deleting channel: {e}")
+    finally:
+        conn.close()
+
+def generate_link_id(channel_username, user_id, permanent=False, parent_link_id=None):
+    link_id = secrets.token_urlsafe(16)
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            INSERT INTO generated_links (link_id, channel_username, user_id, is_permanent, parent_link_id)
+            VALUES (%s, %s, %s, %s, %s)
+        ''', (link_id, channel_username, user_id, permanent, parent_link_id))
+        conn.commit()
+        return link_id
+    except Exception as e:
+        logger.error(f"Error generating link: {e}")
+        return None
+    finally:
+        conn.close()
+
+def get_link_info(link_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            SELECT channel_username, user_id, created_time, is_used, is_permanent, parent_link_id
+            FROM generated_links WHERE link_id = %s
+        ''', (link_id,))
+        result = cursor.fetchone()
+        return result
+    except Exception as e:
+        logger.error(f"Error getting link info: {e}")
+        return None
+    finally:
+        conn.close()
+
+def mark_link_used(link_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('UPDATE generated_links SET is_used = TRUE WHERE link_id = %s', (link_id,))
+        conn.commit()
+    except Exception as e:
+        logger.error(f"Error marking link used: {e}")
+    finally:
+        conn.close()
+
+def cleanup_expired_links():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        expiry_time = datetime.now() - timedelta(minutes=LINK_EXPIRY_MINUTES)
+        cursor.execute('''
+            DELETE FROM generated_links 
+            WHERE created_time < %s AND is_permanent = FALSE
+        ''', (expiry_time,))
+        conn.commit()
+        logger.info("Cleaned up expired links")
+    except Exception as e:
+        logger.error(f"Error cleaning up links: {e}")
+    finally:
+        conn.close()
+
+def mark_user_inactive(user_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('UPDATE users SET is_active = FALSE WHERE user_id = %s', (user_id,))
+        conn.commit()
+        logger.info(f"Marked user {user_id} as inactive")
+    except Exception as e:
+        logger.error(f"Error marking user inactive: {e}")
+    finally:
+        conn.close()
+
 # Keep-alive service
 def keep_alive():
     """Pings a reliable external URL every 14 minutes to prevent sleep"""
@@ -49,168 +325,23 @@ def keep_alive():
         except Exception as e:
             logger.error(f"Keep-alive error: {e}")
 
-def init_db():
-    conn = sqlite3.connect('bot_data.db')
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            username TEXT,
-            first_name TEXT,
-            last_name TEXT,
-            joined_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS force_sub_channels (
-            channel_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            channel_username TEXT UNIQUE,
-            channel_title TEXT,
-            added_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            is_active BOOLEAN DEFAULT 1
-        )
-    ''')
-    
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS generated_links (
-            link_id TEXT PRIMARY KEY,
-            channel_username TEXT,
-            user_id INTEGER,
-            created_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            is_used BOOLEAN DEFAULT 0
-        )
-    ''')
-    
-    conn.commit()
-    conn.close()
-
-def add_user(user_id, username, first_name, last_name):
-    conn = sqlite3.connect('bot_data.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT OR REPLACE INTO users (user_id, username, first_name, last_name)
-        VALUES (?, ?, ?, ?)
-    ''', (user_id, username, first_name, last_name))
-    conn.commit()
-    conn.close()
-
-def get_all_users(limit=20, offset=0):
-    conn = sqlite3.connect('bot_data.db')
-    cursor = conn.cursor()
-    if limit is None:
-        cursor.execute('SELECT user_id, username, first_name, last_name, joined_date FROM users ORDER BY joined_date DESC')
-    else:
-        cursor.execute('SELECT user_id, username, first_name, last_name, joined_date FROM users ORDER BY joined_date DESC LIMIT ? OFFSET ?', (limit, offset))
-    users = cursor.fetchall()
-    conn.close()
-    return users
-
-def get_user_count():
-    conn = sqlite3.connect('bot_data.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT COUNT(*) FROM users')
-    count = cursor.fetchone()[0]
-    conn.close()
-    return count
-
-def get_force_sub_channel_count():
-    conn = sqlite3.connect('bot_data.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT COUNT(*) FROM force_sub_channels WHERE is_active = 1')
-    count = cursor.fetchone()[0]
-    conn.close()
-    return count
-
-def add_force_sub_channel(channel_username, channel_title):
-    conn = sqlite3.connect('bot_data.db')
-    cursor = conn.cursor()
-    try:
-        cursor.execute('''
-            INSERT OR IGNORE INTO force_sub_channels (channel_username, channel_title)
-            VALUES (?, ?)
-        ''', (channel_username, channel_title))
-        conn.commit()
-        return cursor.rowcount > 0
-    except Exception as e:
-        logger.error(f"DB Error adding channel: {e}")
-        return False
-    finally:
-        conn.close()
-
-def get_all_force_sub_channels():
-    conn = sqlite3.connect('bot_data.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT channel_username, channel_title FROM force_sub_channels WHERE is_active = 1 ORDER BY channel_title')
-    channels = cursor.fetchall()
-    conn.close()
-    return channels
-
-def get_force_sub_channel_info(channel_username):
-    conn = sqlite3.connect('bot_data.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT channel_username, channel_title FROM force_sub_channels WHERE channel_username = ? AND is_active = 1', (channel_username,))
-    channel = cursor.fetchone()
-    conn.close()
-    return channel
-
-def delete_force_sub_channel(channel_username):
-    conn = sqlite3.connect('bot_data.db')
-    cursor = conn.cursor()
-    cursor.execute('UPDATE force_sub_channels SET is_active = 0 WHERE channel_username = ?', (channel_username,))
-    conn.commit()
-    conn.close()
-
-def generate_link_id(channel_username, user_id):
-    link_id = secrets.token_urlsafe(16)
-    conn = sqlite3.connect('bot_data.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO generated_links (link_id, channel_username, user_id)
-        VALUES (?, ?, ?)
-    ''', (link_id, channel_username, user_id))
-    conn.commit()
-    conn.close()
-    return link_id
-
-def get_link_info(link_id):
-    conn = sqlite3.connect('bot_data.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT channel_username, user_id, created_time, is_used 
-        FROM generated_links WHERE link_id = ?
-    ''', (link_id,))
-    result = cursor.fetchone()
-    conn.close()
-    return result
-
-def mark_link_used(link_id):
-    conn = sqlite3.connect('bot_data.db')
-    cursor = conn.cursor()
-    cursor.execute('UPDATE generated_links SET is_used = 1 WHERE link_id = ?', (link_id,))
-    conn.commit()
-    conn.close()
-
-def cleanup_expired_links():
-    conn = sqlite3.connect('bot_data.db')
-    cursor = conn.cursor()
-    expiry_time = datetime.now() - timedelta(minutes=LINK_EXPIRY_MINUTES)
-    cursor.execute('DELETE FROM generated_links WHERE created_time < ?', (expiry_time,))
-    conn.commit()
-    conn.close()
-
 async def check_force_subscription(user_id, context):
     channels = get_all_force_sub_channels()
     not_joined_channels = []
     
     for channel_username, channel_title in channels:
         try:
+            # Ensure channel_username starts with @
+            if not channel_username.startswith('@'):
+                channel_username = '@' + channel_username
+                
             member = await context.bot.get_chat_member(channel_username, user_id)
             if member.status in ['left', 'kicked']:
                 not_joined_channels.append((channel_username, channel_title))
         except Exception as e:
             logger.error(f"Error checking subscription for {channel_username}: {e}")
+            # If we can't check, assume user hasn't joined
+            not_joined_channels.append((channel_username, channel_title))
     
     return not_joined_channels
 
@@ -338,7 +469,7 @@ async def show_channel_details(query, context, channel_username_clean):
     """
     
     keyboard = [
-        [InlineKeyboardButton("🔗 GENERATE TEMP LINK", callback_data=f"genlink_{channel_username_clean}")],
+        [InlineKeyboardButton("🔗 GENERATE PERMANENT LINK", callback_data=f"genlink_{channel_username_clean}")],
         [InlineKeyboardButton("🗑️ DELETE CHANNEL", callback_data=f"delete_{channel_username_clean}")],
         [InlineKeyboardButton("🔙 BACK TO MANAGEMENT", callback_data="manage_force_sub")]
     ]
@@ -422,29 +553,31 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_channel_link_deep(update, context, link_id)
         return
     
-    if not is_admin(user.id):
-        not_joined_channels = await check_force_subscription(user.id, context)
-        
-        if not_joined_channels:
-            keyboard = []
-            for channel_username, channel_title in not_joined_channels:
-                keyboard.append([InlineKeyboardButton(f"📢 ᴊᴏɪɴ {channel_title}", url=f"https://t.me/{channel_username[1:]}")])
-            
-            keyboard.append([InlineKeyboardButton("✅ ᴠᴇʀɪғʏ sᴜʙsᴄʀɪᴘᴛɪᴏɴ", callback_data="verify_subscription")])
-            
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            channels_text = "\n".join([f"• {title} (<code>{username}</code>)" for username, title in not_joined_channels])
-            
-            await update.message.reply_text(
-                f"📢 <b>ᴘʟᴇᴀsᴇ ᴊᴏɪɴ ᴏᴜʀ ᴄʜᴀɴɴᴇʟs ᴛᴏ ᴜsᴇ ᴛʜɪs ʙᴏᴛ!</b>\n\n"
-                f"<b>ʀᴇǫᴜɪʀᴇᴅ ᴄʜᴀɴɴᴇʟs:</b>\n{channels_text}\n\n"
-                f"ᴊᴏɪɴ ᴀʟʟ ᴄʜᴀɴɴᴇʟs ᴀʙᴏᴠᴇ ᴀɴᴅ ᴛʜᴇɴ ᴄʟɪᴄᴋ ᴠᴇʀɪғʏ sᴜʙsᴄʀɪᴘᴛɪᴏɴ.",
-                parse_mode='HTML',
-                reply_markup=reply_markup
-            )
-            return
+    # Check force subscription for ALL users
+    not_joined_channels = await check_force_subscription(user.id, context)
     
+    if not_joined_channels:
+        keyboard = []
+        for channel_username, channel_title in not_joined_channels:
+            clean_username = channel_username.lstrip('@')
+            keyboard.append([InlineKeyboardButton(f"📢 ᴊᴏɪɴ {channel_title}", url=f"https://t.me/{clean_username}")])
+        
+        keyboard.append([InlineKeyboardButton("✅ ᴠᴇʀɪғʏ sᴜʙsᴄʀɪᴘᴛɪᴏɴ", callback_data="verify_subscription")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        channels_text = "\n".join([f"• {title} (<code>{username}</code>)" for username, title in not_joined_channels])
+        
+        await update.message.reply_text(
+            f"📢 <b>ᴘʟᴇᴀsᴇ ᴊᴏɪɴ ᴏᴜʀ ᴄʜᴀɴɴᴇʟs ᴛᴏ ᴜsᴇ ᴛʜɪs ʙᴏᴛ!</b>\n\n"
+            f"<b>ʀᴇǫᴜɪʀᴇᴅ ᴄʜᴀɴɴᴇʟs:</b>\n{channels_text}\n\n"
+            f"ᴊᴏɪɴ ᴀʟʟ ᴄʜᴀɴɴᴇʟs ᴀʙᴏᴠᴇ ᴀɴᴅ ᴛʜᴇɴ ᴄʟɪᴄᴋ ᴠᴇʀɪғʏ sᴜʙsᴄʀɪᴘᴛɪᴏɴ.",
+            parse_mode='HTML',
+            reply_markup=reply_markup
+        )
+        return
+    
+    # Only show admin menu if user is admin AND has joined all channels
     if is_admin(user.id):
         await send_admin_menu(update.effective_chat.id, context)
     else:
@@ -478,24 +611,17 @@ async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT
         await update.message.reply_text("❌ ᴛʜɪs ʟɪɴᴋ ʜᴀs ᴇxᴘɪʀᴇᴅ ᴏʀ ɪs ɪɴᴠᴀʟɪᴅ.", parse_mode='HTML')
         return
     
-    channel_identifier, creator_id, created_time, is_used = link_info
-    
-    if is_used:
-        await update.message.reply_text("❌ ᴛʜɪs ʟɪɴᴋ ʜᴀs ᴀʟʀᴇᴀᴅʏ ʙᴇᴇɴ ᴜsᴇᴅ.", parse_mode='HTML')
-        return
-    
-    link_age = datetime.now() - datetime.fromisoformat(created_time)
-    if link_age.total_seconds() > LINK_EXPIRY_MINUTES * 60:
-        await update.message.reply_text("❌ ᴛʜɪs ʟɪɴᴋ ʜᴀs ᴇxᴘɪʀᴇᴅ.", parse_mode='HTML')
-        return
+    channel_identifier, creator_id, created_time, is_used, is_permanent, parent_link_id = link_info
     
     user = update.effective_user
     
+    # Check force subscription
     not_joined_channels = await check_force_subscription(user.id, context)
     if not_joined_channels:
         keyboard = []
         for chan_user, chan_title in not_joined_channels:
-            keyboard.append([InlineKeyboardButton(f"📢 ᴊᴏɪɴ {chan_title}", url=f"https://t.me/{chan_user[1:]}")])
+            clean_username = chan_user.lstrip('@')
+            keyboard.append([InlineKeyboardButton(f"📢 ᴊᴏɪɴ {chan_title}", url=f"https://t.me/{clean_username}")])
         
         keyboard.append([InlineKeyboardButton("✅ ᴠᴇʀɪғʏ sᴜʙsᴄʀɪᴘᴛɪᴏɴ", callback_data=f"verify_deep_{link_id}")])
         
@@ -518,22 +644,26 @@ async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT
         
         chat = await context.bot.get_chat(channel_identifier)
         
+        # For permanent links, generate a new temporary link
+        temp_link_id = generate_link_id(channel_identifier, user.id, permanent=False, parent_link_id=link_id)
+        
+        # Create temporary invite link (5 minutes)
         invite_link = await context.bot.create_chat_invite_link(
             chat.id, 
             member_limit=1,
-            expire_date=datetime.now().timestamp() + 300
+            expire_date=int(datetime.now().timestamp()) + 300  # 5 minutes
         )
         
-        mark_link_used(link_id)
+        mark_link_used(temp_link_id)  # Mark the temporary link as used
         
         success_message = (
             f"<b>ᴄʜᴀɴɴᴇʟ:</b> {chat.title}\n"
-            f"<b>ᴇxᴘɪʀᴇs ɪɴ</b> {LINK_EXPIRY_MINUTES} minutes\n"
-            f"<b>Usage:</b> Single use\n\n"
-            f"<i>ʜᴇʀᴇ ɪs ʏᴏᴜʀ ʟɪɴᴋ! ᴄʟɪᴄᴋ ʙᴇʟᴏᴡ ᴛᴏ ᴘʀᴏᴄᴇᴇᴅ:</i>"
+            f"<b>ᴇxᴘɪʀᴇs ɪɴ:</b> 5 minutes\n"
+            f"<b>Usage:</b> One-time join\n\n"
+            f"<i>ʜᴇʀᴇ ɪs ʏᴏᴜʀ ᴊᴏɪɴ ʟɪɴᴋ! ᴄʟɪᴄᴋ ʙᴇʟᴏᴡ ᴛᴏ ᴊᴏɪɴ:</i>"
         )
         
-        keyboard = [[InlineKeyboardButton("🔗 Request to Join", url=invite_link.invite_link)]]
+        keyboard = [[InlineKeyboardButton("🔗 Join Channel", url=invite_link.invite_link)]]
         
         await update.message.reply_text(
             success_message,
@@ -678,29 +808,33 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("❌ ʟɪɴᴋ ᴇxᴘɪʀᴇᴅ ᴏʀ ɪɴᴠᴀʟɪᴅ.", parse_mode='HTML')
             return
         
-        channel_identifier = link_info[0]
+        channel_identifier, _, _, _, is_permanent, _ = link_info
         
         try:
             if channel_identifier.lstrip('-').isdigit():
                 channel_identifier = int(channel_identifier)
             
             chat = await context.bot.get_chat(channel_identifier)
+            
+            # Generate temporary link from permanent link
+            temp_link_id = generate_link_id(channel_identifier, user_id, permanent=False, parent_link_id=link_id)
+            
             invite_link = await context.bot.create_chat_invite_link(
                 chat.id, 
                 member_limit=1,
-                expire_date=datetime.now().timestamp() + 300
+                expire_date=int(datetime.now().timestamp()) + 300  # 5 minutes
             )
             
-            mark_link_used(link_id)
+            mark_link_used(temp_link_id)
             
             success_message = (
                 f"<b>ᴄʜᴀɴɴᴇʟ:</b> {chat.title}\n"
-                f"<b>ᴇxᴘɪʀᴇs ɪɴ</b> {LINK_EXPIRY_MINUTES} minutes\n"
-                f"<b>Usage:</b> Single use\n\n"
-                f"<i>ʜᴇʀᴇ ɪs ʏᴏᴜʀ ʟɪɴᴋ! ᴄʟɪᴄᴋ ʙᴇʟᴏᴡ ᴛᴏ ᴘʀᴏᴄᴇᴇᴅ:</i>"
+                f"<b>ᴇxᴘɪʀᴇs ɪɴ:</b> 5 minutes\n"
+                f"<b>Usage:</b> One-time join\n\n"
+                f"<i>ʜᴇʀᴇ ɪs ʏᴏᴜʀ ᴊᴏɪɴ ʟɪɴᴋ! ᴄʟɪᴄᴋ ʙᴇʟᴏᴡ ᴛᴏ ᴊᴏɪɴ:</i>"
             )
             
-            keyboard = [[InlineKeyboardButton("🔗 Request to Join", url=invite_link.invite_link)]]
+            keyboard = [[InlineKeyboardButton("🔗 Join Channel", url=invite_link.invite_link)]]
 
             try:
                 await query.delete_message()
@@ -716,7 +850,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
         except Exception as e:
             logger.error(f"Error generating deep verify link: {e}")
-            await query.edit_message_text("❌ ᴇʀʀᴏʀ ᴀᴄᴄᴇssɪɴɢ ᴄʜᴀɴɴᴇʟ ʟɪɴᴋ. ᴘʟᴇᴀsᴇ ᴄᴏɴᴛᴀᴄᴛ ᴛʜᴇ ᴀᴅᴍɪɴ ɪғ ᴛʜɪs ɪssᴜᴇ ᴘᴇʀsɪsᴛs..", parse_mode='HTML')
+            await query.edit_message_text("❌ ᴇʀʀᴏʀ ᴀᴄᴄᴇssɪɴɢ ᴄʜᴀɴɴᴇʟ ʟɪɴᴋ. ᴘʟᴇᴀsᴇ ᴄᴏɴᴛᴀᴄᴛ ᴛʜᴇ ᴀᴅᴍɪɴ ɪғ ᴛʜɪs ɪssᴜᴇ ᴘᴇʀsɪsᴛs.", parse_mode='HTML')
     
     elif data == "admin_stats":
         if not is_admin(user_id):
@@ -793,6 +927,31 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("❌ ᴀᴅᴍɪɴ ᴏɴʟʏ.", parse_mode='HTML')
             return
         await show_channel_details(query, context, data[8:])
+    
+    elif data.startswith("genlink_"):
+        if not is_admin(user_id):
+            await query.edit_message_text("❌ ᴀᴅᴍɪɴ ᴏɴʟʏ.", parse_mode='HTML')
+            return
+        
+        channel_username_clean = data[8:]
+        channel_username = '@' + channel_username_clean
+        
+        # Generate permanent link
+        link_id = generate_link_id(channel_username, user_id, permanent=True)
+        bot_username = context.bot.username
+        
+        deep_link = f"https://t.me/{bot_username}?start={link_id}"
+        
+        await query.edit_message_text(
+            f"🔗 <b>PERMANENT LINK GENERATED</b> 🔗\n\n"
+            f"<b>Channel:</b> {channel_username}\n"
+            f"<b>Type:</b> Permanent (Generates 5-min links)\n"
+            f"<b>Usage:</b> Generates one-time join links\n\n"
+            f"<b>Share this permanent link:</b>\n<code>{deep_link}</code>\n\n"
+            f"<i>When users click this link, they'll get a 5-minute one-time join link.</i>",
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK", callback_data=f"channel_{channel_username_clean}")]])
+        )
     
     elif data.startswith("delete_"):
         if not is_admin(user_id):
@@ -1000,14 +1159,27 @@ async def cleanup_task(context: ContextTypes.DEFAULT_TYPE):
     cleanup_expired_links()
 
 def main():
-    init_db()
-    
+    # Initialize database with retry logic
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            init_db()
+            logger.info("✅ Database initialized successfully")
+            break
+        except Exception as e:
+            logger.error(f"❌ Database initialization attempt {attempt + 1} failed: {e}")
+            if attempt == max_retries - 1:
+                logger.error("💥 All database initialization attempts failed")
+                return
+            time.sleep(5)
+
     if not BOT_TOKEN:
-        logger.error("BOT_TOKEN is missing. Please update it in bot.py.")
+        logger.error("❌ BOT_TOKEN is missing")
         return
 
     application = Application.builder().token(BOT_TOKEN).build()
     
+    # Add handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_handler))
     
@@ -1016,19 +1188,23 @@ def main():
     
     application.add_error_handler(error_handler)
     
+    # Job queues
     job_queue = application.job_queue
-    if job_queue: 
-        job_queue.run_repeating(cleanup_task, interval=600, first=10)
+    if job_queue:
+        job_queue.run_repeating(
+            lambda context: asyncio.create_task(cleanup_task(context)), 
+            interval=600, 
+            first=10
+        )
     else:
-        logger.warning("JobQueue is not available.")
+        logger.warning("JobQueue not available")
 
+    # Webhook or polling
     if WEBHOOK_URL and BOT_TOKEN:
         keep_alive_thread = Thread(target=keep_alive, daemon=True)
         keep_alive_thread.start()
-        logger.info("✅ Keep-alive service started - Bot will remain active 24/7")
+        logger.info("✅ Keep-alive service started")
         
-        print(f"🤖 Starting Webhook on port {PORT}")
-        print(f"🌐 Webhook URL: {WEBHOOK_URL + BOT_TOKEN}")
         application.run_webhook(
             listen="0.0.0.0",
             port=PORT,
@@ -1036,12 +1212,8 @@ def main():
             webhook_url=WEBHOOK_URL + BOT_TOKEN
         )
     else:
-        print("🤖 Starting in Polling Mode...")
+        logger.info("🤖 Starting in Polling Mode...")
         application.run_polling()
 
 if __name__ == '__main__':
-    if 'PORT' not in os.environ:
-        os.environ['PORT'] = str(8080)
-    
     main()
-
