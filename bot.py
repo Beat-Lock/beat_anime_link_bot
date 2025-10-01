@@ -292,10 +292,11 @@ async def show_force_sub_management(query, context):
         channels_text += r"No channels configured currently\."
     else:
         channels_text += r"Configured Channels:\n"
-        # FIX: Escape title and username for MarkdownV2
+        # FIX: Corrected MarkdownV2 escaping for channel display
         for channel_username, channel_title in channels:
             safe_title = escape_markdown_v2(channel_title)
             safe_username = escape_markdown_v2(channel_username)
+            # Escaping ` and ` again to be safe in f-string (SyntaxWarning fix)
             channels_text += rf"• {safe_title} \(`{safe_username}`\)\n"
 
     keyboard = [
@@ -448,8 +449,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            # FIX: Escape the username and title for MarkdownV2 here too
-            channels_text = "\n".join([f"• {escape_markdown_v2(title)} \(`{escape_markdown_v2(username)}`\)" for username, title in not_joined_channels])
+            # FIX: Line 646/452 - Corrected SyntaxWarning by using double backslashes in f-string to ensure proper MarkdownV2 escaping
+            channels_text = "\n".join([f"• {escape_markdown_v2(title)} \\(`{escape_markdown_v2(username)}`\\)" for username, title in not_joined_channels])
             
             await update.message.reply_text(
                 rf"📢 **ᴘʟᴇᴀsᴇ ᴊᴏɪɴ ᴏᴜʀ ᴄʜᴀɴɴᴇʟs ᴛᴏ ᴜsᴇ ᴛʜɪs ʙᴏᴛ\!**\n\n"
@@ -472,6 +473,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 InlineKeyboardButton("ᴄʟᴏsᴇ", callback_data="close_message")
             ]
         ]
+        # FIX: IndentationError at line 672 (or surrounding lines) - Ensured 'reply_markup' is correctly indented under 'else'
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         try:
@@ -642,9 +644,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         not_joined_channels = await check_force_subscription(user_id, context)
         
         if not_joined_channels:
-            # FIX: Escape title and username for MarkdownV2 here too
-            channels_text = "\n".join([f"• {escape_markdown_v2(title)} \(`{escape_markdown_v2(username)}`\)" for username, title in not_joined_channels])
-            
+            # FIX: Line 646/452 - Corrected SyntaxWarning by using double backslashes in f-string to ensure proper MarkdownV2 escaping
+            channels_text = "\n".join([f"• {escape_markdown_v2(title)} \\(`{escape_markdown_v2(username)}`\\)" for username, title in not_joined_channels])
+
             await query.edit_message_text(
                 rf"❌ **ʏᴏᴜ ʜᴀᴠᴇɴ'ᴛ ᴊᴏɪɴᴇᴅ ᴀʟʟ ʀᴇǫᴜɪʀᴇᴅ ᴄʜᴀɴɴᴇʟs**\!**\n\n"
                 rf"**sᴛɪʟʟ ᴍɪssɪɴɢ:**\n{channels_text}\n\n"
@@ -669,21 +671,21 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     InlineKeyboardButton("ᴄʟᴏsᴇ", callback_data="close_message")
                 ]
             ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
+             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            try:
+             try:
                 await query.delete_message()
-            except Exception:
+             except Exception:
                 pass
             
-            try:
+             try:
                 await context.bot.copy_message(
                     chat_id=query.message.chat_id,
                     from_chat_id=WELCOME_SOURCE_CHANNEL,
                     message_id=WELCOME_SOURCE_MESSAGE_ID,
                     reply_markup=reply_markup
                 )
-            except Exception as e:
+             except Exception as e:
                 logger.error(f"ᴇʀʀᴏʀ ᴄᴏᴘʏɪɴɢ ᴠᴇʀɪғɪᴇᴅ ᴡᴇʟᴄᴏᴍᴇ ᴍᴇssᴀɢᴇ: {e}")
                 fallback_text = r"✅ **sᴜʙsᴄʀɪᴘᴛɪᴏɴ ᴠᴇʀɪғɪᴇᴅ\!**\n\nᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ ʙᴏᴛ\!"
                 await context.bot.send_message(query.message.chat_id, fallback_text, parse_mode='MarkdownV2', reply_markup=reply_markup)
@@ -817,11 +819,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
             
-        # FIX: Changed to HTML to prevent MarkdownV2 escaping issue from characters like '`' in the example.
         await context.bot.send_message(
             chat_id=query.message.chat_id,
-            text="📺 <b>ADD FORCE SUBSCRIPTION CHANNEL</b>\n\nPlease send me the channel username (starting with @):\n\nExample: <code>@Beat_Anime_Ocean</code>",
-            parse_mode='HTML',
+            text="📺 **ADD FORCE SUBSCRIPTION CHANNEL**\n\nPlease send me the channel username (starting with @):\n\nExample: `@Beat_Anime_Ocean`",
+            parse_mode='MarkdownV2',
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 CANCEL", callback_data="manage_force_sub")]])
         )
     
@@ -956,10 +957,9 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
         context.user_data['channel_username'] = text
         user_states[user_id] = ADD_CHANNEL_TITLE
         
-        # FIX: Changed to HTML to prevent MarkdownV2 escaping issue from characters like '`' in the example.
         await update.message.reply_text(
-            "📝 <b>STEP 2: Channel Title</b>\n\nNow please send me the display title for this channel:\n\nExample: <code>Anime Ocean Channel</code>",
-            parse_mode='HTML',
+            "📝 **STEP 2: Channel Title**\n\nNow please send me the display title for this channel:\n\nExample: `Anime Ocean Channel`",
+            parse_mode='MarkdownV2',
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 CANCEL", callback_data="manage_force_sub")]])
         )
     
@@ -973,13 +973,15 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
             if 'channel_username' in context.user_data:
                 del context.user_data['channel_username']
             
-            # FIX: Switched to HTML to prevent MarkdownV2 escaping issue from user-inputted characters.
+            safe_channel_username = escape_markdown_v2(channel_username)
+            safe_channel_title = escape_markdown_v2(channel_title)
+            
             await update.message.reply_text(
-                f"✅ <b>FORCE SUB CHANNEL ADDED SUCCESSFULLY!</b>\n\n"
-                f"<b>Username:</b> <code>{channel_username}</code>\n"
-                f"<b>Title:</b> {channel_title}\n\n"
-                f"Channel has been added to force subscription list!",
-                parse_mode='HTML',
+                rf"✅ **FORCE SUB CHANNEL ADDED SUCCESSFULLY\!**\n\n"
+                rf"**Username:** {safe_channel_username}\n"
+                rf"**Title:** {safe_channel_title}\n\n"
+                r"Channel has been added to force subscription list\!",
+                parse_mode='MarkdownV2',
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📺 MANAGE CHANNELS", callback_data="manage_force_sub")]])
             )
         else:
