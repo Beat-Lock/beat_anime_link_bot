@@ -656,15 +656,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
             await send_admin_menu(query.message.chat_id, context)
         else:
-           keyboard = [
-            [InlineKeyboardButton("ᴀɴɪᴍᴇ ᴄʜᴀɴɴᴇʟ", url=PUBLIC_ANIME_CHANNEL_URL)], 
-            [InlineKeyboardButton("ᴄᴏɴᴛᴀᴄᴛ ᴀᴅᴍɪɴ", url=f"https://t.me/{ADMIN_CONTACT_USERNAME}")],
-            [InlineKeyboardButton("ʀᴇǫᴜᴇsᴛ ᴀɴɪᴍᴇ ᴄʜᴀɴɴᴇʟ", url=REQUEST_CHANNEL_URL)],
-            [
-                InlineKeyboardButton("ᴀʙᴏᴜᴛ ᴍᴇ", callback_data="about_bot"),
-                InlineKeyboardButton("ᴄʟᴏsᴇ", callback_data="close_message")
+             keyboard = [
+                [InlineKeyboardButton("ᴀɴɪᴍᴇ ᴄʜᴀɴɴᴇʟ", url=PUBLIC_ANIME_CHANNEL_URL)], 
+                [InlineKeyboardButton("ᴄᴏɴᴛᴀᴄᴛ ᴀᴅᴍɪɴ", url=f"https://t.me/{ADMIN_CONTACT_USERNAME}")],
+                [InlineKeyboardButton("ʀᴇǫᴜᴇsᴛ ᴀɴɪᴍᴇ ᴄʜᴀɴɴᴇʟ", url=REQUEST_CHANNEL_URL)],
+                [
+                    InlineKeyboardButton("ᴀʙᴏᴜᴛ ᴍᴇ", callback_data="about_bot"),
+                    InlineKeyboardButton("ᴄʟᴏsᴇ", callback_data="close_message")
+                ]
             ]
-        ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             try:
@@ -872,14 +872,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await send_admin_menu(query.message.chat_id, context, query)
         else:
             keyboard = [
-            [InlineKeyboardButton("ᴀɴɪᴍᴇ ᴄʜᴀɴɴᴇʟ", url=PUBLIC_ANIME_CHANNEL_URL)], 
-            [InlineKeyboardButton("ᴄᴏɴᴛᴀᴄᴛ ᴀᴅᴍɪɴ", url=f"https://t.me/{ADMIN_CONTACT_USERNAME}")],
-            [InlineKeyboardButton("ʀᴇǫᴜᴇsᴛ ᴀɴɪᴍᴇ ᴄʜᴀɴɴᴇʟ", url=REQUEST_CHANNEL_URL)],
-            [
-                InlineKeyboardButton("ᴀʙᴏᴜᴛ ᴍᴇ", callback_data="about_bot"),
-                InlineKeyboardButton("ᴄʟᴏsᴇ", callback_data="close_message")
-            ]
-        ]
+               [InlineKeyboardButton("ᴀɴɪᴍᴇ ᴄʜᴀɴɴᴇʟ", url=PUBLIC_ANIME_CHANNEL_URL)], 
+               [InlineKeyboardButton("ᴄᴏɴᴛᴀᴄᴛ ᴀᴅᴍɪɴ", url=f"https://t.me/{ADMIN_CONTACT_USERNAME}")],
+               [InlineKeyboardButton("ʀᴇǫᴜᴇsᴛ ᴀɴɪᴍᴇ ᴄʜᴀɴɴᴇʟ", url=REQUEST_CHANNEL_URL)],
+               [
+                   InlineKeyboardButton("ᴀʙᴏᴜᴛ ᴍᴇ", callback_data="about_bot"),
+                   InlineKeyboardButton("ᴄʟᴏsᴇ", callback_data="close_message")
+               ]
+           ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             try:
@@ -1097,5 +1097,6 @@ if __name__ == '__main__':
         os.environ['PORT'] = str(8080)
     
     main()
+
 
 
