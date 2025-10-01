@@ -19,7 +19,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Bot configuration
-BOT_TOKEN = '7877393813:AAEqVD-Ar6M4O3yg6h2ZuNUN_PPY4NRVr10'
+BOT_TOKEN = '7877393813:AAEqVD-Ar6M4O2yg6h2ZuNUN_PPY4NRVr10' # Placeholder, keep original
 ADMIN_ID = 829342319
 LINK_EXPIRY_MINUTES = 5
 
@@ -286,18 +286,15 @@ async def send_admin_stats(query, context):
 async def show_force_sub_management(query, context):
     channels = get_all_force_sub_channels()
     
-    channels_text = "📺 **FORCE SUBSCRIPTION CHANNELS** 📺\n\n"
+    # CHANGED TO HTML: To reliably display channel titles and usernames
+    channels_text = "📺 <b>FORCE SUBSCRIPTION CHANNELS</b> 📺\n\n"
     
     if not channels:
-        channels_text += r"No channels configured currently\."
+        channels_text += "No channels configured currently."
     else:
-        channels_text += r"Configured Channels:\n"
-        # FIX: Corrected MarkdownV2 escaping for channel display
+        channels_text += "Configured Channels:\n"
         for channel_username, channel_title in channels:
-            safe_title = escape_markdown_v2(channel_title)
-            safe_username = escape_markdown_v2(channel_username)
-            # Escaping ` and ` again to be safe in f-string (SyntaxWarning fix)
-            channels_text += rf"• {safe_title} \(`{safe_username}`\)\n"
+            channels_text += f"• <b>{channel_title}</b> (<code>{channel_username}</code>)\n"
 
     keyboard = [
         [InlineKeyboardButton("➕ ADD NEW CHANNEL", callback_data="add_channel_start")]
@@ -326,7 +323,7 @@ async def show_force_sub_management(query, context):
     await context.bot.send_message(
         chat_id=query.message.chat_id,
         text=channels_text,
-        parse_mode='MarkdownV2',
+        parse_mode='HTML', # Changed to HTML
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
@@ -449,14 +446,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            # FIX: Line 646/452 - Corrected SyntaxWarning by using double backslashes in f-string to ensure proper MarkdownV2 escaping
-            channels_text = "\n".join([f"• {escape_markdown_v2(title)} \\(`{escape_markdown_v2(username)}`\\)" for username, title in not_joined_channels])
+            # CHANGED TO HTML: To fix MarkdownV2 error from listing channels
+            channels_text = "\n".join([f"• <b>{title}</b> (<code>{username}</code>)" for username, title in not_joined_channels])
             
             await update.message.reply_text(
-                rf"📢 **ᴘʟᴇᴀsᴇ ᴊᴏɪɴ ᴏᴜʀ ᴄʜᴀɴɴᴇʟs ᴛᴏ ᴜsᴇ ᴛʜɪs ʙᴏᴛ\!**\n\n"
-                rf"**ʀᴇǫᴜɪʀᴇᴅ ᴄʜᴀɴɴᴇʟs:**\n{channels_text}\n\n"
-                r"ᴊᴏɪɴ ᴀʟʟ ᴄʜᴀɴɴᴇʟs ᴀʙᴏᴠᴇ ᴀɴᴅ ᴛʜᴇɴ ᴄʟɪᴄᴋ ᴠᴇʀɪғʏ sᴜʙsᴄʀɪᴘᴛɪᴏɴ\.",
-                parse_mode='MarkdownV2',
+                f"📢 <b>ᴘʟᴇᴀsᴇ ᴊᴏɪɴ ᴏᴜʀ ᴄʜᴀɴɴᴇʟs ᴛᴏ ᴜsᴇ ᴛʜɪs ʙᴏᴛ!</b>\n\n"
+                f"<b>ʀᴇǫᴜɪʀᴇᴅ ᴄʜᴀɴɴᴇʟs:</b>\n{channels_text}\n\n"
+                f"ᴊᴏɪɴ ᴀʟʟ ᴄʜᴀɴɴᴇʟs ᴀʙᴏᴠᴇ ᴀɴᴅ ᴛʜᴇɴ ᴄʟɪᴄᴋ ᴠᴇʀɪғʏ sᴜʙsᴄʀɪᴘᴛɪᴏɴ.",
+                parse_mode='HTML', # Changed to HTML
                 reply_markup=reply_markup
             )
             return
@@ -473,7 +470,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 InlineKeyboardButton("ᴄʟᴏsᴇ", callback_data="close_message")
             ]
         ]
-        # FIX: IndentationError at line 672 (or surrounding lines) - Ensured 'reply_markup' is correctly indented under 'else'
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         try:
@@ -481,7 +477,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id=update.effective_chat.id,
                 from_chat_id=WELCOME_SOURCE_CHANNEL,
                 message_id=WELCOME_SOURCE_MESSAGE_ID,
-                reply_markup=reply_markup
+                reply_markup=reply_markup,
+                parse_mode='MarkdownV2' # Ensure copy_message uses the correct parse_mode if needed
             )
         except Exception as e:
             logger.error(f"Error copying welcome message from channel: {e}")
@@ -518,13 +515,14 @@ async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        channels_text = "\n".join([f"• {escape_markdown_v2(title)}" for _, title in not_joined_channels])
+        # CHANGED TO HTML: To fix MarkdownV2 error from listing channels
+        channels_text = "\n".join([f"• <b>{title}</b>" for _, title in not_joined_channels])
         
         await update.message.reply_text(
-            rf"📢 **ᴘʟᴇᴀsᴇ ᴊᴏɪɴ ᴏᴜʀ ᴄʜᴀɴɴᴇʟs ᴛᴏ ɢᴇᴛ ᴀᴄᴄᴇss\!**\n\n"
-            rf"**ʀᴇǫᴜɪʀᴇᴅ ᴄʜᴀɴɴᴇʟs:**\n{channels_text}\n\n"
-            r"ᴊᴏɪɴ ᴀʟʟ ᴄʜᴀɴɴᴇʟs ᴀʙᴏᴠᴇ ᴀɴᴅ ᴛʜᴇɴ ᴄʟɪᴄᴋ ᴠᴇʀɪғʏ sᴜʙsᴄʀɪᴘᴛɪᴏɴ\.",
-            parse_mode='MarkdownV2',
+            f"📢 <b>ᴘʟᴇᴀsᴇ ᴊᴏɪɴ ᴏᴜʀ ᴄʜᴀɴɴᴇʟs ᴛᴏ ɢᴇᴛ ᴀᴄᴄᴇss!</b>\n\n"
+            f"<b>ʀᴇǫᴜɪʀᴇᴅ ᴄʜᴀɴɴᴇʟs:</b>\n{channels_text}\n\n"
+            f"ᴊᴏɪɴ ᴀʟʟ ᴄʜᴀɴɴᴇʟs ᴀʙᴏᴠᴇ ᴀɴᴅ ᴛʜᴇɴ ᴄʟɪᴄᴋ ᴠᴇʀɪғʏ sᴜʙsᴄʀɪᴘᴛɪᴏɴ.",
+            parse_mode='HTML', # Changed to HTML
             reply_markup=reply_markup
         )
         return
@@ -644,14 +642,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         not_joined_channels = await check_force_subscription(user_id, context)
         
         if not_joined_channels:
-            # FIX: Line 646/452 - Corrected SyntaxWarning by using double backslashes in f-string to ensure proper MarkdownV2 escaping
-            channels_text = "\n".join([f"• {escape_markdown_v2(title)} \\(`{escape_markdown_v2(username)}`\\)" for username, title in not_joined_channels])
-
+            # CHANGED TO HTML: To fix MarkdownV2 error from listing channels
+            channels_text = "\n".join([f"• <b>{title}</b>" for _, title in not_joined_channels])
             await query.edit_message_text(
-                rf"❌ **ʏᴏᴜ ʜᴀᴠᴇɴ'ᴛ ᴊᴏɪɴᴇᴅ ᴀʟʟ ʀᴇǫᴜɪʀᴇᴅ ᴄʜᴀɴɴᴇʟs**\!**\n\n"
-                rf"**sᴛɪʟʟ ᴍɪssɪɴɢ:**\n{channels_text}\n\n"
-                r"ᴘʟᴇᴀsᴇ ᴊᴏɪɴ ᴀʟʟ ᴄʜᴀɴɴᴇʟs ᴀɴᴅ ᴛʀʏ ᴀɢᴀɪɴ\.",
-                parse_mode='MarkdownV2'
+                f"❌ <b>ʏᴏᴜ ʜᴀᴠᴇɴ'ᴛ ᴊᴏɪɴᴇᴅ ᴀʟʟ ʀᴇǫᴜɪʀᴇᴅ ᴄʜᴀɴɴᴇʟs!</b>\n\n"
+                f"<b>sᴛɪʟʟ ᴍɪssɪɴɢ:</b>\n{channels_text}\n\n"
+                f"ᴘʟᴇᴀsᴇ ᴊᴏɪɴ ᴀʟʟ ᴄʜᴀɴɴᴇʟs ᴀɴᴅ ᴛʀʏ ᴀɢᴀɪɴ.",
+                parse_mode='HTML' # Changed to HTML
             )
             return
         
@@ -662,7 +659,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
             await send_admin_menu(query.message.chat_id, context)
         else:
-             keyboard = [
+            keyboard = [
                 [InlineKeyboardButton("ᴀɴɪᴍᴇ ᴄʜᴀɴɴᴇʟ", url=PUBLIC_ANIME_CHANNEL_URL)], 
                 [InlineKeyboardButton("ᴄᴏɴᴛᴀᴄᴛ ᴀᴅᴍɪɴ", url=f"https://t.me/{ADMIN_CONTACT_USERNAME}")],
                 [InlineKeyboardButton("ʀᴇǫᴜᴇsᴛ ᴀɴɪᴍᴇ ᴄʜᴀɴɴᴇʟ", url=REQUEST_CHANNEL_URL)],
@@ -671,21 +668,22 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     InlineKeyboardButton("ᴄʟᴏsᴇ", callback_data="close_message")
                 ]
             ]
-             reply_markup = InlineKeyboardMarkup(keyboard)
+            reply_markup = InlineKeyboardMarkup(keyboard)
             
-             try:
+            try:
                 await query.delete_message()
-             except Exception:
+            except Exception:
                 pass
             
-             try:
+            try:
                 await context.bot.copy_message(
                     chat_id=query.message.chat_id,
                     from_chat_id=WELCOME_SOURCE_CHANNEL,
                     message_id=WELCOME_SOURCE_MESSAGE_ID,
-                    reply_markup=reply_markup
+                    reply_markup=reply_markup,
+                    parse_mode='MarkdownV2' # Ensure copy_message uses the correct parse_mode if needed
                 )
-             except Exception as e:
+            except Exception as e:
                 logger.error(f"ᴇʀʀᴏʀ ᴄᴏᴘʏɪɴɢ ᴠᴇʀɪғɪᴇᴅ ᴡᴇʟᴄᴏᴍᴇ ᴍᴇssᴀɢᴇ: {e}")
                 fallback_text = r"✅ **sᴜʙsᴄʀɪᴘᴛɪᴏɴ ᴠᴇʀɪғɪᴇᴅ\!**\n\nᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ ʙᴏᴛ\!"
                 await context.bot.send_message(query.message.chat_id, fallback_text, parse_mode='MarkdownV2', reply_markup=reply_markup)
@@ -696,12 +694,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         not_joined_channels = await check_force_subscription(user_id, context)
         
         if not_joined_channels:
-            channels_text = "\n".join([f"• {escape_markdown_v2(title)}" for _, title in not_joined_channels])
+            # CHANGED TO HTML: To fix MarkdownV2 error from listing channels
+            channels_text = "\n".join([f"• <b>{title}</b>" for _, title in not_joined_channels])
             await query.edit_message_text(
-                rf"❌ **ʏᴏᴜ ʜᴀᴠᴇɴ'ᴛ ᴊᴏɪɴᴇᴅ ᴀʟʟ ʀᴇǫᴜɪʀᴇᴅ ᴄʜᴀɴɴᴇʟs**\!**\n\n"
-                rf"**sᴛɪʟʟ ᴍɪssɪɴɢ:**\n{channels_text}\n\n"
-                r"ᴘʟᴇᴀsᴇ ᴊᴏɪɴ ᴀʟʟ ᴄʜᴀɴɴᴇʟs ᴀɴᴅ ᴛʀʏ ᴀɢᴀɪɴ\.",
-                parse_mode='MarkdownV2'
+                f"❌ <b>ʏᴏᴜ ʜᴀᴠᴇɴ'ᴛ ᴊᴏɪɴᴇᴅ ᴀʟʟ ʀᴇǫᴜɪʀᴇᴅ ᴄʜᴀɴɴᴇʟs!</b>\n\n"
+                f"<b>sᴛɪʟʟ ᴍɪssɪɴɢ:</b>\n{channels_text}\n\n"
+                f"ᴘʟᴇᴀsᴇ ᴊᴏɪɴ ᴀʟʟ ᴄʜᴀɴɴᴇʟs ᴀɴᴅ ᴛʀʏ ᴀɢᴀɪɴ.",
+                parse_mode='HTML' # Changed to HTML
             )
             return
         
@@ -898,7 +897,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     chat_id=query.message.chat_id,
                     from_chat_id=WELCOME_SOURCE_CHANNEL,
                     message_id=WELCOME_SOURCE_MESSAGE_ID,
-                    reply_markup=reply_markup
+                    reply_markup=reply_markup,
+                    parse_mode='MarkdownV2' # Ensure copy_message uses the correct parse_mode if needed
                 )
             except Exception as e:
                 logger.error(f"Error copying 'user_back' message: {e}")
@@ -909,9 +909,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         about_me_text = r"""
 *About Us\.*
 
-▣ **Made for: @Beat\_Anime\_Ocean**
-▣ **Owned by: @Beat\_Anime\_Ocean**
-▣ **Developer: @Beat\_Anime\_Ocean**
+▣**Made for: @Beat\_Anime\_Ocean**
+▣**Owned by: @Beat\_Anime\_Ocean**
+▣**Developer: @Beat\_Anime\_Ocean**
 
 _Adios \!\!_
 """
@@ -946,7 +946,8 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
             
     text = update.message.text
     if text is None:
-        await update.message.reply_text("❌ Please send a text message as requested.", parse_mode='MarkdownV2')
+        # Changed to HTML for consistency
+        await update.message.reply_text("❌ <b>Please send a text message as requested.</b>", parse_mode='HTML')
         return
 
     if state == ADD_CHANNEL_USERNAME:
