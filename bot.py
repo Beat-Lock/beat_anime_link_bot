@@ -18,7 +18,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Bot configuration
-BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_TOKEN_HERE")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "7877393813:AAEqVD-Ar6M4O3yg6h2ZuNUN_PPY4NRVr10")
 ADMIN_ID = 829342319
 LINK_EXPIRY_MINUTES = 5
 
@@ -738,3 +738,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
