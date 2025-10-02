@@ -1,6 +1,6 @@
 import os
 import logging
-import psycopg2 # Changed from sqlite3
+import pg8000
 import secrets
 import re
 import requests
@@ -10,6 +10,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 import asyncio
 from threading import Thread
+from urllib.parse import urlparse
 
 # Configure logging
 logging.basicConfig(
@@ -19,8 +20,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Bot configuration
-BOT_TOKEN = '7877393813:AAEqVD-Ar6M4O3yg6h2ZuNUN_PPY4NRVr10' # REPLACE WITH YOUR BOT TOKEN
-ADMIN_ID = 829342319 # REPLACE WITH YOUR ADMIN USER ID
+BOT_TOKEN = '7877393813:AAEqVD-Ar6M4O3yg6h2ZuNUN_PPY4NRVr10'
+ADMIN_ID = 829342319
 LINK_EXPIRY_MINUTES = 5
 
 # Global variables for webhook configuration
@@ -28,17 +29,11 @@ PORT = int(os.environ.get('PORT', 8080))
 WEBHOOK_URL = os.environ.get('RENDER_EXTERNAL_URL', '').rstrip('/') + '/'
 
 # Customization constants
-WELCOME_SOURCE_CHANNEL = -1002530952988 # REPLACE WITH YOUR WELCOME MESSAGE SOURCE CHANNEL ID
-WELCOME_SOURCE_MESSAGE_ID = 32 # REPLACE WITH YOUR WELCOME MESSAGE ID
+WELCOME_SOURCE_CHANNEL = -1002530952988
+WELCOME_SOURCE_MESSAGE_ID = 32
 PUBLIC_ANIME_CHANNEL_URL = "https://t.me/BeatAnime"
 REQUEST_CHANNEL_URL = "https://t.me/Beat_Hindi_Dubbed"
 ADMIN_CONTACT_USERNAME = "Beat_Anime_Ocean"
-
-# --- NEW: Permanent Channel for Temporary Access ---
-# This is the channel for which users will get a 5-minute temporary link
-# after passing force sub when they use the 'permanent_channel_access' deep link.
-# REPLACE WITH YOUR ACTUAL PERMANENT CHANNEL ID (for private) or USERNAME (for public)
-PERMANENT_CHANNEL_IDENTIFIER = -1002000000000 # Example: -1001234567890 for a private channel, or "@YourPublicChannel"
 
 # User states
 ADD_CHANNEL_USERNAME, ADD_CHANNEL_TITLE, GENERATE_LINK_CHANNEL_USERNAME, PENDING_BROADCAST = range(4)
@@ -58,14 +53,24 @@ def keep_alive():
         except Exception as e:
             logger.error(f"Keep-alive error: {e}")
 
-# --- Database Functions (Updated for PostgreSQL) ---
+# --- Database Functions (Updated for PostgreSQL with pg8000) ---
 def get_db_connection():
     """Establishes a connection to the PostgreSQL database."""
     DATABASE_URL = os.environ.get('DATABASE_URL')
     if not DATABASE_URL:
         logger.error("DATABASE_URL environment variable not set.")
         raise ValueError("DATABASE_URL environment variable not set.")
-    return psycopg2.connect(DATABASE_URL)
+    
+    # Parse the database URL for pg8000
+    result = urlparse(DATABASE_URL)
+    
+    return pg8000.connect(
+        database=result.path[1:],  # Remove the leading '/'
+        user=result.username,
+        password=result.password,
+        host=result.hostname,
+        port=result.port
+    )
 
 def init_db():
     """Initializes the PostgreSQL database tables."""
@@ -314,15 +319,12 @@ async def check_force_subscription(user_id, context):
     
     for channel_username, channel_title in channels:
         try:
-            # For private channels, get_chat_member requires the chat ID (integer)
-            # For public channels, it can take the username (string starting with @)
             chat_identifier = int(channel_username) if channel_username.lstrip('-').isdigit() else channel_username
             member = await context.bot.get_chat_member(chat_identifier, user_id)
             if member.status in ['left', 'kicked']:
                 not_joined_channels.append((channel_username, channel_title))
         except Exception as e:
             logger.error(f"Error checking subscription for {channel_username} for user {user_id}: {e}")
-            # If bot cannot access the channel, treat it as not joined for safety
             not_joined_channels.append((channel_username, channel_title))
     
     return not_joined_channels
@@ -337,10 +339,10 @@ async def delete_previous_admin_message(chat_id, context):
             await context.bot.delete_message(chat_id=chat_id, message_id=last_admin_message_ids[chat_id])
             del last_admin_message_ids[chat_id]
         except Exception as e:
-            logger.debug(f"Could not delete previous admin message for chat {chat_id}: {e}") # Use debug for expected errors
+            logger.debug(f"Could not delete previous admin message for chat {chat_id}: {e}")
 
 async def send_admin_menu(chat_id, context, query=None):
-    await delete_previous_admin_message(chat_id, context) # Delete previous message
+    await delete_previous_admin_message(chat_id, context)
 
     keyboard = [
         [InlineKeyboardButton("📊 BOT STATS", callback_data="admin_stats")],
@@ -362,7 +364,7 @@ async def send_admin_menu(chat_id, context, query=None):
 
 async def send_admin_stats(query, context):
     chat_id = query.message.chat_id
-    await delete_previous_admin_message(chat_id, context) # Delete previous message
+    await delete_previous_admin_message(chat_id, context)
         
     user_count = get_user_count()
     channel_count = get_force_sub_channel_count()
@@ -390,7 +392,7 @@ async def send_admin_stats(query, context):
 
 async def show_force_sub_management(query, context):
     chat_id = query.message.chat_id
-    await delete_previous_admin_message(chat_id, context) # Delete previous message
+    await delete_previous_admin_message(chat_id, context)
     
     channels = get_all_force_sub_channels()
     
@@ -432,7 +434,7 @@ async def show_force_sub_management(query, context):
 
 async def show_channel_details(query, context, channel_username_clean):
     chat_id = query.message.chat_id
-    await delete_previous_admin_message(chat_id, context) # Delete previous message
+    await delete_previous_admin_message(chat_id, context)
 
     channel_username = '@' + channel_username_clean if not channel_username_clean.lstrip('-').isdigit() else channel_username_clean
     channel_info = get_force_sub_channel_info(channel_username)
@@ -475,7 +477,7 @@ async def show_channel_details(query, context, channel_username_clean):
 
 async def send_user_management(query, context, offset=0):
     chat_id = query.message.chat_id
-    await delete_previous_admin_message(chat_id, context) # Delete previous message
+    await delete_previous_admin_message(chat_id, context)
             
     user_count = get_user_count()
     users = get_all_users(limit=10, offset=offset)
@@ -490,10 +492,9 @@ async def send_user_management(query, context, offset=0):
             display_username = f"@{username}" if username else f"ID: {user_id}"
             
             try:
-                # Ensure joined_date is a datetime object for formatting
                 if isinstance(joined_date, str):
                     formatted_date = datetime.fromisoformat(joined_date).strftime('%Y-%m-%d %H:%M')
-                else: # Assume it's already a datetime object from psycopg2
+                else:
                     formatted_date = joined_date.strftime('%Y-%m-%d %H:%M')
             except Exception:
                 formatted_date = "Unknown"
@@ -532,77 +533,14 @@ async def send_user_management(query, context, offset=0):
     )
     last_admin_message_ids[chat_id] = sent_message.message_id
 
-# --- NEW: Handler for permanent channel access deep link ---
-async def handle_permanent_link_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    
-    not_joined_channels = await check_force_subscription(user.id, context)
-    
-    if not_joined_channels:
-        keyboard = []
-        for chan_user, chan_title in not_joined_channels:
-            # Ensure correct URL for channel username
-            channel_url = f"https://t.me/{chan_user[1:]}" if chan_user.startswith('@') else f"https://t.me/c/{str(chan_user).replace('-100', '')}"
-            keyboard.append([InlineKeyboardButton(f"📢 ᴊᴏɪɴ {chan_title}", url=channel_url)])
-        
-        keyboard.append([InlineKeyboardButton("✅ ᴠᴇʀɪғʏ sᴜʙsᴄʀɪᴘᴛɪᴏɴ", callback_data="verify_permanent_access")]) 
-        
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        channels_text = "\n".join([f"• {title} (<code>{username}</code>)" for username, title in not_joined_channels])
-        
-        await update.message.reply_text(
-            f"📢 <b>ᴘʟᴇᴀsᴇ ᴊᴏɪɴ ᴏᴜʀ ᴄʜᴀɴɴᴇʟs ᴛᴏ ɢᴇᴛ ᴀᴄᴄᴇss!</b>\n\n"
-            f"<b>ʀᴇǫᴜɪʀᴇᴅ ᴄʜᴀɴɴᴇʟs:</b>\n{channels_text}\n\n"
-            f"ᴊᴏɪɴ ᴀʟʟ ᴄʜᴀɴɴᴇʟs ᴀʙᴏᴠᴇ ᴀɴᴅ ᴛʜᴇɴ ᴄʟɪᴄᴋ ᴠᴇʀɪғʏ sᴜʙsᴄʀɪᴘᴛɪᴏɴ.",
-            parse_mode='HTML',
-            reply_markup=reply_markup
-        )
-        return
-
-    # If force sub passed, generate the temporary link for the permanent channel
-    try:
-        # Ensure PERMANENT_CHANNEL_IDENTIFIER is an integer if it's a private channel ID
-        chat_identifier = int(PERMANENT_CHANNEL_IDENTIFIER) if str(PERMANENT_CHANNEL_IDENTIFIER).lstrip('-').isdigit() else PERMANENT_CHANNEL_IDENTIFIER
-        chat = await context.bot.get_chat(chat_identifier)
-        
-        invite_link = await context.bot.create_chat_invite_link(
-            chat.id, 
-            member_limit=1,
-            expire_date=datetime.now().timestamp() + (LINK_EXPIRY_MINUTES * 60) # Use LINK_EXPIRY_MINUTES
-        )
-        
-        success_message = (
-            f"<b>ᴄʜᴀɴɴᴇʟ:</b> {chat.title}\n"
-            f"<b>ᴇxᴘɪʀᴇs ɪɴ</b> {LINK_EXPIRY_MINUTES} minutes\n"
-            f"<b>Usage:</b> Single use\n\n"
-            f"<i>ʜᴇʀᴇ ɪs ʏᴏᴜʀ ᴛᴇᴍᴘᴏʀᴀʀʏ ʟɪɴᴋ ᴛᴏ ᴛʜᴇ ᴘᴇʀᴍᴀɴᴇɴᴛ ᴄʜᴀɴɴᴇʟ! ᴄʟɪᴄᴋ ʙᴇʟᴏᴡ ᴛᴏ ᴘʀᴏᴄᴇᴇᴅ:</i>"
-        )
-        
-        keyboard = [[InlineKeyboardButton("🔗 Request to Join Permanent Channel", url=invite_link.invite_link)]]
-        
-        await update.message.reply_text(
-            success_message,
-            parse_mode='HTML',
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        
-    except Exception as e:
-        logger.error(f"Error generating temporary invite link for permanent channel {PERMANENT_CHANNEL_IDENTIFIER}: {e}")
-        await update.message.reply_text("❌ ᴇʀʀᴏʀ ᴀᴄᴄᴇssɪɴɢ ᴄʜᴀɴɴᴇʟ ʟɪɴᴋ. ᴘʟᴇᴀsᴇ ᴄᴏɴᴛᴀᴄᴛ ᴛʜᴇ ᴀᴅᴍɪɴ ɪғ ᴛʜɪs ɪssᴜᴇ ᴘᴇʀsɪsᴛs.", parse_mode='HTML')
-
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     add_user(user.id, user.username, user.first_name, user.last_name)
     
     if context.args and len(context.args) > 0:
         link_arg = context.args[0]
-        if link_arg == "permanent_channel_access": # New deep link argument
-            await handle_permanent_link_request(update, context)
-            return
-        else:
-            await handle_channel_link_deep(update, context, link_arg)
-            return
+        await handle_channel_link_deep(update, context, link_arg)
+        return
     
     if not is_admin(user.id):
         not_joined_channels = await check_force_subscription(user.id, context)
@@ -610,7 +548,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not_joined_channels:
             keyboard = []
             for channel_username, channel_title in not_joined_channels:
-                # Ensure correct URL for channel username
                 channel_url = f"https://t.me/{channel_username[1:]}" if channel_username.startswith('@') else f"https://t.me/c/{str(channel_username).replace('-100', '')}"
                 keyboard.append([InlineKeyboardButton(f"📢 ᴊᴏɪɴ {channel_title}", url=channel_url)])
             
@@ -668,7 +605,6 @@ async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT
         await update.message.reply_text("❌ ᴛʜɪs ʟɪɴᴋ ʜᴀs ᴀʟʀᴇᴀᴅʏ ʙᴇᴇɴ ᴜsᴇᴅ.", parse_mode='HTML')
         return
     
-    # created_time from psycopg2 is already a datetime object
     link_age = datetime.now() - created_time
     if link_age.total_seconds() > LINK_EXPIRY_MINUTES * 60:
         await update.message.reply_text("❌ ᴛʜɪs ʟɪɴᴋ ʜᴀs ᴇxᴘɪʀᴇᴅ.", parse_mode='HTML')
@@ -699,7 +635,6 @@ async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT
         return
     
     try:
-        # Ensure channel_identifier is an integer if it's a private channel ID
         chat_identifier_int = int(channel_identifier) if str(channel_identifier).lstrip('-').isdigit() else channel_identifier
         chat = await context.bot.get_chat(chat_identifier_int)
         
@@ -747,8 +682,8 @@ async def broadcast_message_to_all_users(update: Update, context: ContextTypes.D
             )
             success_count += 1
         except Exception:
-            pass # Silently fail for users who blocked the bot
-        await asyncio.sleep(0.1) # Small delay to avoid rate limits
+            pass
+        await asyncio.sleep(0.1)
     
     await context.bot.send_message(
         chat_id=update.effective_chat.id, 
@@ -761,16 +696,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user_id = query.from_user.id
     data = query.data
-    chat_id = query.message.chat_id # Get chat_id for message deletion
+    chat_id = query.message.chat_id
 
-    # Clear user state if an admin button is clicked while in a state
     if user_id in user_states:
         current_state = user_states.get(user_id)
         if current_state in [PENDING_BROADCAST, GENERATE_LINK_CHANNEL_USERNAME, ADD_CHANNEL_TITLE, ADD_CHANNEL_USERNAME] and data in ["admin_back", "admin_stats", "manage_force_sub", "generate_links", "user_management"]:
             del user_states[user_id]
-            # Also delete the message that prompted the state
             await delete_previous_admin_message(chat_id, context)
-            # The admin menu will be sent by admin_back or the specific handler
 
     if data == "close_message":
         try:
@@ -788,7 +720,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         keyboard = [[InlineKeyboardButton("🔙 CANCEL", callback_data="admin_back")]]
         
-        await delete_previous_admin_message(chat_id, context) # Delete previous admin message
+        await delete_previous_admin_message(chat_id, context)
             
         sent_message = await context.bot.send_message(
             chat_id=chat_id,
@@ -812,7 +744,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
-        # If verification passes, delete the verification message
         try:
             await query.delete_message()
         except Exception:
@@ -844,28 +775,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 fallback_text = "✅ <b>sᴜʙsᴄʀɪᴘᴛɪᴏɴ ᴠᴇʀɪғɪᴇᴅ!</b>\n\nWelcome to the bot!"
                 await context.bot.send_message(chat_id, fallback_text, parse_mode='HTML', reply_markup=reply_markup)
         
-    elif data == "verify_permanent_access": # NEW: Handler for permanent link verification
-        not_joined_channels = await check_force_subscription(user_id, context)
-        
-        if not_joined_channels:
-            channels_text = "\n".join([f"• {title}" for _, title in not_joined_channels])
-            await query.edit_message_text(
-                f"❌ <b>ʏᴏᴜ ʜᴀᴠᴇɴ'ᴛ ᴊᴏɪɴᴇᴅ ᴀʟʟ ʀᴇǫᴜɪʀᴇᴅ ᴄʜᴀɴɴᴇʟs</b>\n\n"
-                f"<b>sᴛɪʟʟ ᴍɪssɪɴɢ:</b>\n{channels_text}\n\n"
-                f"ᴘʟᴇᴀsᴇ ᴊᴏɪɴ ᴀʟʟ ᴄʜᴀɴɴᴇʟs ᴀɴᴅ ᴛʀʏ ᴀɢᴀɪɴ.",
-                parse_mode='HTML'
-            )
-            return
-        
-        # If verification passes, delete the verification message
-        try:
-            await query.delete_message()
-        except Exception:
-            pass
-        
-        # Re-run the permanent link request logic to generate the temporary link
-        await handle_permanent_link_request(update, context)
-
     elif data.startswith("verify_deep_"):
         link_id = data[12:]
         not_joined_channels = await check_force_subscription(user_id, context)
@@ -888,7 +797,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         channel_identifier = link_info[0]
         
         try:
-            # Ensure channel_identifier is an integer if it's a private channel ID
             chat_identifier_int = int(channel_identifier) if str(channel_identifier).lstrip('-').isdigit() else channel_identifier
             chat = await context.bot.get_chat(chat_identifier_int)
             invite_link = await context.bot.create_chat_invite_link(
@@ -963,7 +871,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_states[user_id] = GENERATE_LINK_CHANNEL_USERNAME
         keyboard = [[InlineKeyboardButton("🔙 CANCEL", callback_data="admin_back")]]
         
-        await delete_previous_admin_message(chat_id, context) # Delete previous admin message
+        await delete_previous_admin_message(chat_id, context)
             
         sent_message = await context.bot.send_message(
             chat_id=chat_id,
@@ -975,12 +883,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif data == "add_channel_start":
         if not is_admin(user_id):
-            await query.edit_message_text("❌ ᴀᴅᴍɪɴ ᴏɴʟʏ.", parse_mode='HTML')
+            await query.edit_message_text("❌ ᴀᴅᴍɪɴ ᴏɴʟʢ.", parse_mode='HTML')
             return
         
         user_states[user_id] = ADD_CHANNEL_USERNAME
         
-        await delete_previous_admin_message(chat_id, context) # Delete previous admin message
+        await delete_previous_admin_message(chat_id, context)
             
         sent_message = await context.bot.send_message(
             chat_id=chat_id,
@@ -1011,7 +919,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("❌ NO, CANCEL", callback_data=f"channel_{channel_username_clean}")]
             ]
             
-            await delete_previous_admin_message(chat_id, context) # Delete previous admin message
+            await delete_previous_admin_message(chat_id, context)
             sent_message = await context.bot.send_message(
                 chat_id=chat_id,
                 text=f"🗑️ <b>CONFIRM DELETION</b>\n\n"
@@ -1033,7 +941,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         delete_force_sub_channel(channel_username)
         
-        await delete_previous_admin_message(chat_id, context) # Delete previous admin message
+        await delete_previous_admin_message(chat_id, context)
         sent_message = await context.bot.send_message(
             chat_id=chat_id,
             text=f"✅ <b>CHANNEL DELETED</b>\n\n"
@@ -1045,7 +953,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif data in ["admin_back", "user_back", "channels_back"]:
         if is_admin(user_id):
-            await send_admin_menu(chat_id, context) # send_admin_menu handles deletion
+            await send_admin_menu(chat_id, context)
         else:
             keyboard = [
                 [InlineKeyboardButton("ᴀɴɪᴍᴇ ᴄʜᴀɴɴᴇʟ", url=PUBLIC_ANIME_CHANNEL_URL)], 
@@ -1059,7 +967,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             try:
-                await query.delete_message() # Delete the message that contained the "back" button
+                await query.delete_message()
             except Exception:
                 pass
             
@@ -1104,7 +1012,6 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
     chat_id = update.effective_chat.id
     
     if user_id not in user_states:
-        # If an admin sends a message not in a state, just ignore or reply with admin menu
         if is_admin(user_id):
             await send_admin_menu(chat_id, context)
         return 
@@ -1112,11 +1019,10 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
     state = user_states[user_id]
     
     if state == PENDING_BROADCAST:
-        # The message to broadcast is update.message itself
         if user_id in user_states:
             del user_states[user_id]
             await broadcast_message_to_all_users(update, context, update.message)
-            await send_admin_menu(chat_id, context) # Return to admin menu after broadcast
+            await send_admin_menu(chat_id, context)
             return
             
     text = update.message.text
@@ -1125,7 +1031,6 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     if state == ADD_CHANNEL_USERNAME:
-        # Allow both @username and -100... ID
         if not (text.startswith('@') or text.lstrip('-').isdigit()):
             await update.message.reply_text("❌ Please provide a valid channel username (starting with @) or a private channel ID (e.g., <code>-1001234567890</code>). Try again:", parse_mode='HTML')
             return
@@ -1177,7 +1082,6 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
             del user_states[user_id]
         
         try:
-            # Ensure channel_identifier is an integer if it's a private channel ID
             chat_identifier_int = int(channel_identifier) if channel_identifier.lstrip('-').isdigit() else channel_identifier
             chat = await context.bot.get_chat(chat_identifier_int)
             channel_title = chat.title
@@ -1214,20 +1118,27 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
         )
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.error(f"Exception while handling an update: {context.error}", exc_info=True) # Log full traceback
+    logger.error(f"Exception while handling an update: {context.error}", exc_info=True)
 
 async def cleanup_task(context: ContextTypes.DEFAULT_TYPE):
     cleanup_expired_links()
 
 def main():
-    init_db() # Initialize DB first
-    
+    # Initialize database with retry logic
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            init_db()
+            logger.info("✅ Database initialized successfully")
+            break
+        except Exception as e:
+            logger.error(f"❌ Database initialization attempt {attempt + 1} failed: {e}")
+            if attempt == max_retries - 1:
+                logger.error("💥 All database initialization attempts failed")
+            time.sleep(2)
+
     if not BOT_TOKEN:
-        logger.error("BOT_TOKEN is missing. Please update it in bot.py.")
-        return
-    
-    if not os.environ.get('DATABASE_URL'):
-        logger.error("DATABASE_URL environment variable is missing. Please set it for PostgreSQL.")
+        logger.error("❌ BOT_TOKEN is missing")
         return
 
     application = Application.builder().token(BOT_TOKEN).build()
@@ -1235,7 +1146,6 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_handler))
     
-    # Admin filter for messages when in a specific state
     admin_filter = filters.User(user_id=ADMIN_ID)
     application.add_handler(MessageHandler(admin_filter & ~filters.COMMAND & filters.TEXT, handle_admin_message))
     application.add_handler(MessageHandler(admin_filter & ~filters.COMMAND & (filters.PHOTO | filters.VIDEO | filters.DOCUMENT | filters.AUDIO | filters.STICKER), handle_admin_message))
@@ -1244,7 +1154,7 @@ def main():
     
     job_queue = application.job_queue
     if job_queue: 
-        job_queue.run_repeating(cleanup_task, interval=600, first=10) # Run every 10 minutes
+        job_queue.run_repeating(cleanup_task, interval=600, first=10)
     else:
         logger.warning("JobQueue is not available.")
 
@@ -1270,4 +1180,3 @@ if __name__ == '__main__':
         os.environ['PORT'] = str(8080)
     
     main()
-
