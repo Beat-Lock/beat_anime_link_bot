@@ -59,7 +59,7 @@ async def delete_bot_prompt(context: ContextTypes.DEFAULT_TYPE, chat_id):
             logger.warning(f"Could not delete bot prompt message {prompt_id}: {e}")
     return prompt_id
 
-# ========== DATABASE FUNCTIONS (omitted for brevity) ==========
+# ========== DATABASE FUNCTIONS ==========
 
 def init_db():
     conn = sqlite3.connect('bot_data.db')
@@ -70,7 +70,8 @@ def init_db():
             username TEXT,
             first_name TEXT,
             last_name TEXT,
-            joined_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            joined_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            is_banned BOOLEAN DEFAULT 0
         )
     ''')
     cursor.execute('''
@@ -93,13 +94,63 @@ def init_db():
     conn.commit()
     conn.close()
 
+def get_user_id_by_username(username):
+    """Looks up a user's ID by their @username (case-insensitive)."""
+    conn = sqlite3.connect('bot_data.db')
+    cursor = conn.cursor()
+    # Remove the '@' if present and convert to lowercase for case-insensitive lookup
+    clean_username = username.lstrip('@').lower() 
+    # Use COLLATE NOCASE for case-insensitive search if available, or just LOWER()
+    cursor.execute('SELECT user_id FROM users WHERE LOWER(username) = ?', (clean_username,))
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result else None
+    
+def resolve_target_user_id(arg):
+    """Tries to resolve an argument (ID or @username) into a numerical user ID."""
+    # 1. Try to parse as integer (ID)
+    try:
+        return int(arg)
+    except ValueError:
+        pass
+
+    # 2. Try to look up by username
+    if arg:
+        return get_user_id_by_username(arg)
+    
+    return None
+
+def ban_user(user_id):
+    conn = sqlite3.connect('bot_data.db')
+    cursor = conn.cursor()
+    cursor.execute('UPDATE users SET is_banned = 1 WHERE user_id = ?', (user_id,))
+    conn.commit()
+    conn.close()
+
+def unban_user(user_id):
+    conn = sqlite3.connect('bot_data.db')
+    cursor = conn.cursor()
+    cursor.execute('UPDATE users SET is_banned = 0 WHERE user_id = ?', (user_id,))
+    conn.commit()
+    conn.close()
+
+def is_user_banned(user_id):
+    conn = sqlite3.connect('bot_data.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT is_banned FROM users WHERE user_id = ?', (user_id,))
+    result = cursor.fetchone()
+    # Check if user exists and if is_banned column is set to 1
+    return result[0] == 1 if result else False
+
 def add_user(user_id, username, first_name, last_name):
     conn = sqlite3.connect('bot_data.db')
     cursor = conn.cursor()
+    # Ensure username is stored without the leading '@'
+    clean_username = username.lstrip('@') if username else None
     cursor.execute('''
         INSERT OR REPLACE INTO users (user_id, username, first_name, last_name)
         VALUES (?, ?, ?, ?)
-    ''', (user_id, username, first_name, last_name))
+    ''', (user_id, clean_username, first_name, last_name))
     conn.commit()
     conn.close()
 
@@ -115,9 +166,11 @@ def get_all_users(limit=None, offset=0):
     conn = sqlite3.connect('bot_data.db')
     cursor = conn.cursor()
     if limit is None:
-        cursor.execute('SELECT user_id, username, first_name, last_name, joined_date FROM users ORDER BY joined_date DESC')
+        # Fetching 6 columns: (uid, username, fname, lname, joined, is_banned)
+        cursor.execute('SELECT user_id, username, first_name, last_name, joined_date, is_banned FROM users ORDER BY joined_date DESC')
     else:
-        cursor.execute('SELECT user_id, username, first_name, last_name, joined_date FROM users ORDER BY joined_date DESC LIMIT ? OFFSET ?', (limit, offset))
+        # Fetching 6 columns: (uid, username, fname, lname, joined, is_banned)
+        cursor.execute('SELECT user_id, username, first_name, last_name, joined_date, is_banned FROM users ORDER BY joined_date DESC LIMIT ? OFFSET ?', (limit, offset))
     users = cursor.fetchall()
     conn.close()
     return users
@@ -197,7 +250,7 @@ def get_link_info(link_id):
     conn.close()
     return result
     
-# ========== FORCE SUBSCRIPTION LOGIC ==========
+# ========== FORCE SUBSCRIPTION LOGIC (with Ban Check) ==========
 
 async def is_user_subscribed(user_id: int, bot) -> bool:
     """Check if user is member of all force‑sub channels."""
@@ -225,10 +278,25 @@ def force_sub_required(func):
         
         force_sub_channels_info = get_all_force_sub_channels(return_usernames_only=False)
         
-        if not force_sub_channels_info:
+        if user.id == ADMIN_ID:
             return await func(update, context, *args, **kwargs)
 
-        if user.id == ADMIN_ID:
+        # --- BAN CHECK ---
+        if is_user_banned(user.id):
+            await delete_update_message(update)
+            ban_text = "🚫 You have been banned from using this bot. Contact the administrator for details."
+            if update.message:
+                await update.message.reply_text(ban_text)
+            elif update.callback_query:
+                # Need to use try-except here as edit_message_text might fail
+                try:
+                    await update.callback_query.edit_message_text(ban_text)
+                except:
+                    await context.bot.send_message(update.effective_chat.id, ban_text)
+            return
+        # --- END BAN CHECK ---
+
+        if not force_sub_channels_info:
             return await func(update, context, *args, **kwargs)
 
         subscribed = await is_user_subscribed(user.id, context.bot)
@@ -242,15 +310,15 @@ def force_sub_required(func):
             channels_text_list = []
             
             for uname, title in force_sub_channels_info:
-                keyboard.append([InlineKeyboardButton(f"📢 Join {title}", url=f"https://t.me/{uname.lstrip('@')}")])
+                keyboard.append([InlineKeyboardButton(f"{title}", url=f"https://t.me/{uname.lstrip('@')}")])
                 channels_text_list.append(f"• {title} (<code>{uname}</code>)")
                 
-            keyboard.append([InlineKeyboardButton("✅ Verify Subscription", callback_data="verify_subscription")])
+            keyboard.append([InlineKeyboardButton("click to continue", callback_data="verify_subscription")])
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             channels_text = "\n".join(channels_text_list)
             text = (
-                "<b>Please join our Eorld of Anime first:</b>\n"
+                " <b>Please join our word of anime first:</b>\n\n"
                 "After joining, click <b>Verify Subscription</b>."
             )
 
@@ -265,7 +333,78 @@ def force_sub_required(func):
 
     return wrapper
 
-# ========== ADMIN COMMAND HANDLERS (WITH DELETION) ==========
+# ========== NEW ADMIN COMMAND HANDLERS (for Ban/Unban) ==========
+
+async def ban_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin command to ban a user by ID or username."""
+    if update.effective_user.id != ADMIN_ID:
+        return
+
+    await delete_update_message(update)
+
+    args = context.args
+    if len(args) != 1:
+        await update.message.reply_text(
+            "❌ **Usage:** `/banuser @username or ID`\n**Example:** `/banuser 123456789`",
+            parse_mode='Markdown'
+        )
+        return
+
+    target_arg = args[0]
+    target_user_id = resolve_target_user_id(target_arg)
+
+    if target_user_id is None:
+        await update.message.reply_text(
+            f"❌ User **{target_arg}** not found in database.",
+            parse_mode='Markdown'
+        )
+        return
+        
+    if target_user_id == ADMIN_ID:
+        await update.message.reply_text(
+            "⚠️ Cannot ban the **Admin**.",
+            parse_mode='Markdown'
+        )
+        return
+
+    ban_user(target_user_id)
+    await update.message.reply_text(
+        f"🚫 User with ID **{target_user_id}** (Target: {target_arg}) has been **banned**.",
+        parse_mode='Markdown'
+    )
+
+async def unban_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin command to unban a user by ID or username."""
+    if update.effective_user.id != ADMIN_ID:
+        return
+
+    await delete_update_message(update)
+
+    args = context.args
+    if len(args) != 1:
+        await update.message.reply_text(
+            "❌ **Usage:** `/unbanuser @username or ID`\n**Example:** `/unbanuser @BannedUser`",
+            parse_mode='Markdown'
+        )
+        return
+
+    target_arg = args[0]
+    target_user_id = resolve_target_user_id(target_arg)
+
+    if target_user_id is None:
+        await update.message.reply_text(
+            f"❌ User **{target_arg}** not found in database.",
+            parse_mode='Markdown'
+        )
+        return
+        
+    unban_user(target_user_id)
+    await update.message.reply_text(
+        f"✅ User with ID **{target_user_id}** (Target: {target_arg}) has been **unbanned**.",
+        parse_mode='Markdown'
+    )
+
+# ========== EXISTING ADMIN COMMAND HANDLERS (WITH DELETION) ==========
 
 async def add_channel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin command to add a force-sub channel via /addchannel @username title."""
@@ -359,7 +498,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await delete_update_message(update)
 
     # 2. DELETE THE BOT'S FORCE-SUB PROMPT MESSAGE (Bot Output)
-    # This is crucial for cleanup after successful verification via the 'Verify Subscription' button.
     if update.callback_query and update.callback_query.message:
         try:
             # We delete the message that contained the 'Verify Subscription' button
@@ -367,6 +505,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.warning(f"Could not delete subscription prompt message: {e}")
     
+    # Store user data (username is cleaned inside add_user)
     add_user(user.id, user.username, user.first_name, user.last_name)
 
     if context.args and len(context.args) > 0:
@@ -414,7 +553,7 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
     # 1. Deletes the admin's input message (User Input)
     await delete_update_message(update)
     
-    if user_id not in user_states:
+    if user_id != ADMIN_ID or user_id not in user_states:
         return
 
     state = user_states[user_id]
@@ -495,8 +634,6 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK TO MENU", callback_data="admin_back")]])
         )
 
-# ... (rest of the code: button_handler, async helper functions like send_admin_menu, main)
-
 @force_sub_required
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -508,8 +645,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Cleanup of the verification message will happen inside the start function
         return await start(update, context)
 
-    # ... (omitted: handling of close_message, admin_stats, user_management)
-    
     if user_id in user_states:
         current = user_states[user_id]
         # Clear state on back button clicks, and delete the bot's prompt message
@@ -524,7 +659,41 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.warning(f"Could not delete message: {e}")
         return
 
-    if data == "admin_broadcast_start":
+    # --- BAN/UNBAN LOGIC (Inline Button) ---
+    elif data.startswith("toggle_ban_"):
+        if user_id != ADMIN_ID:
+            await query.answer("You are not authorized", show_alert=True)
+            return
+
+        try:
+            # Format: toggle_ban_f<user_id>_f<target_status>
+            parts = data.split('_')
+            target_user_id = int(parts[2].lstrip('f'))
+            target_status = int(parts[3].lstrip('f')) # 1 to ban, 0 to unban
+
+            if target_user_id == ADMIN_ID:
+                await query.answer("Cannot ban self!", show_alert=True)
+                # Refresh current user list
+                await send_user_management(query, context, offset=0) 
+                return
+
+            if target_status == 1:
+                ban_user(target_user_id)
+                action = "banned"
+            else:
+                unban_user(target_user_id)
+                action = "unbanned"
+            
+            # Refresh the user management page to show updated status
+            await send_user_management(query, context, offset=0) 
+            await query.answer(f"User {target_user_id} successfully {action}.", show_alert=True)
+
+        except Exception as e:
+            logger.error(f"Error handling ban/unban: {e}")
+            await query.answer("Error processing request.", show_alert=True)
+    # --- END BAN/UNBAN LOGIC (Inline Button) ---
+
+    elif data == "admin_broadcast_start":
         if user_id != ADMIN_ID:
             await query.edit_message_text("❌ Admin only", parse_mode='HTML')
             return
@@ -544,7 +713,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['bot_prompt_message_id'] = msg.message_id
         return
 
-    if data == "admin_stats":
+    elif data == "admin_stats":
         if user_id != ADMIN_ID:
             await query.edit_message_text("❌ Admin only", parse_mode='HTML')
             return
@@ -609,8 +778,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 CANCEL", callback_data="manage_force_sub")]])
         )
         context.user_data['bot_prompt_message_id'] = msg.message_id
-
-    # ... (omitted: handling for channel_*, delete_*, confirm_delete_*, delete_channel_prompt)
 
     elif data.startswith("channel_"):
         if user_id != ADMIN_ID:
@@ -847,24 +1014,46 @@ async def send_user_management(query, context, offset=0):
         await query.answer("You are not authorized", show_alert=True)
         return
     total = get_user_count()
-    users = get_all_users(limit=10, offset=offset)
+    # Fetches 6 columns: (uid, username, fname, lname, joined, is_banned)
+    users = get_all_users(limit=10, offset=offset) 
     has_next = total > offset + 10
     has_prev = offset > 0
     text = f"👤 <b>USER MANAGEMENT</b>\n\nShowing {offset+1}-{min(offset+10, total)} of {total}\n\n"
-    for (uid, username, fname, lname, joined) in users:
+    
+    management_keyboard = []
+
+    for (uid, username, fname, lname, joined, is_banned) in users:
+        # Use stored username (without @) for display, or ID if not available
+        uname_display = f"@{username}" if username else f"ID: {uid}"
+        
         name = f"{fname or ''} {lname or ''}".strip() or "N/A"
-        uname = f"@{username}" if username else f"ID: {uid}"
-        text += f"<b>{name}</b> (<code>{uname}</code>)\nJoined: {joined}\n\n"
-    keyboard = []
+        status = "🚫 BANNED" if is_banned else "✅ Active"
+        text += f"<b>{name}</b> (<code>{uname_display}</code>)\nJoined: {joined}\nStatus: {status}\n\n"
+
+        # Ban/Unban button
+        action_button_text = "✅ UNBAN" if is_banned else "🚫 BAN"
+        # Pass target status (1 to ban, 0 to unban)
+        management_keyboard.append([
+            InlineKeyboardButton(
+                action_button_text, 
+                # Note: Added 'f' prefix to ensure ID is passed safely via callback data
+                callback_data=f"toggle_ban_f{uid}_f{1-is_banned}" 
+            )
+        ])
+        
+    final_keyboard = management_keyboard
+    
     nav = []
     if has_prev:
         nav.append(InlineKeyboardButton("⬅️ PREV", callback_data=f"user_page_{offset-10}"))
     if has_next:
         nav.append(InlineKeyboardButton("NEXT ➡️", callback_data=f"user_page_{offset+10}"))
     if nav:
-        keyboard.append(nav)
-    keyboard.append([InlineKeyboardButton("🔙 BACK", callback_data="admin_back")])
-    await query.edit_message_text(text=text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
+        final_keyboard.append(nav)
+        
+    final_keyboard.append([InlineKeyboardButton("🔙 BACK", callback_data="admin_back")])
+
+    await query.edit_message_text(text=text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(final_keyboard))
 
 async def broadcast_message_to_all_users(update: Update, context: ContextTypes.DEFAULT_TYPE, message_to_copy):
     users = get_all_users(limit=None, offset=0)
@@ -916,6 +1105,12 @@ def main():
     admin_filter = filters.User(user_id=ADMIN_ID)
     application.add_handler(CommandHandler("addchannel", add_channel_command, filters=admin_filter))
     application.add_handler(CommandHandler("removechannel", remove_channel_command, filters=admin_filter))
+    
+    # --- NEW BAN/UNBAN COMMANDS ---
+    application.add_handler(CommandHandler("banuser", ban_user_command, filters=admin_filter))
+    application.add_handler(CommandHandler("unbanuser", unban_user_command, filters=admin_filter))
+    # -----------------------------
+
     application.add_handler(MessageHandler(admin_filter & ~filters.COMMAND, handle_admin_message))
     
     application.add_error_handler(error_handler)
