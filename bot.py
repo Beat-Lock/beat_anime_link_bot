@@ -1,15 +1,15 @@
 import os
 import logging
-# import sqlite3  # REMOVED: No longer used
-import pg8000.dbapi # ADDED: For PostgreSQL connection
-import ssl          # ADDED: For SSL context
-import certifi      # ADDED: For root certificates (CRITICAL FIX)
+import pg8000.dbapi 
+import ssl          
+import certifi      
 import secrets
-import requests
+# import requests # REMOVED: Replaced with urllib.parse for DB URL parsing
+import urllib.parse # ADDED: For reliable DB URL parsing
 import time
 import asyncio
-import sys # ADDED FOR RESTART
-import json # ADDED FOR RESTART
+import sys 
+import json 
 from datetime import datetime, timedelta
 from functools import wraps
 from threading import Thread
@@ -77,7 +77,7 @@ async def delete_bot_prompt(context: ContextTypes.DEFAULT_TYPE, chat_id):
             logger.warning(f"Could not delete bot prompt message {prompt_id}: {e}")
     return prompt_id
 
-# ========== DATABASE FUNCTIONS (PostgreSQL with SSL Fix) ==========
+# ========== DATABASE FUNCTIONS (PostgreSQL with SSL Fix and Port Parsing Fix) ==========
 
 def get_conn():
     """Establishes a secure connection to the PostgreSQL database using the DATABASE_URL environment variable."""
@@ -85,7 +85,10 @@ def get_conn():
         raise ValueError("DATABASE_URL environment variable is not set.")
     
     # 1. Parse the DATABASE_URL (Render format: postgres://user:pass@host:port/dbname)
-    url_parts = requests.utils.urlparse(DATABASE_URL)
+    # CRITICAL FIX: Ensure urllib.parse recognizes 'postgres' as a network location scheme
+    urllib.parse.uses_netloc.append('postgres') 
+    urllib.parse.uses_netloc.append('postgresql') 
+    url_parts = urllib.parse.urlparse(DATABASE_URL)
     
     # 2. Prepare SSL context for Render (CRITICAL FIX for WRONG_VERSION_NUMBER/SSL issues)
     ssl_context = ssl.create_default_context(cafile=certifi.where())
@@ -98,7 +101,7 @@ def get_conn():
             user=url_parts.username,
             password=url_parts.password,
             host=url_parts.hostname,
-            port=url_parts.port,
+            port=url_parts.port or 5432, # FIXED: Use parsed port, or default to 5432
             ssl_context=ssl_context # Passing the SSL context for a secure connection
         )
         return conn
@@ -1245,6 +1248,11 @@ def keep_alive():
         time.sleep(840) # 14 minutes
         try:
             # Use a fast, reliable endpoint
+            # Note: Since 'requests' was removed for DB parsing, we might need to add it back 
+            # or use another method if this line is critical for Render's free tier. 
+            # Assuming 'requests' is available from the original code or environment.
+            # If requests is not installed, you should use 'import requests' at the top.
+            import requests # Re-adding import locally for the thread function
             requests.get(WEBHOOK_URL + "health", timeout=10)
         except Exception:
             pass
