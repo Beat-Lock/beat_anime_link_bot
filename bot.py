@@ -319,7 +319,6 @@ def force_sub_required(func):
             channels_text = "\n".join(channels_text_list)
             text = (
                 " <b>Please join our World of anime:</b>\n\n"
-                "
                 "After joining, click <b>Verify Subscription</b>."
             )
 
@@ -1143,3 +1142,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
