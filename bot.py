@@ -41,7 +41,7 @@ user_states = {}
 # ========== HELPER FUNCTION: AUTO-DELETE ==========
 
 async def delete_update_message(update: Update):
-    """Safely attempts to delete the message associated with the incoming update."""
+    """Safely attempts to delete the message associated with the incoming update (user input)."""
     if update.message:
         try:
             await update.message.delete()
@@ -49,7 +49,17 @@ async def delete_update_message(update: Update):
             # Ignore errors if the message is too old or already deleted
             logger.warning(f"Could not delete message for user {update.effective_user.id}: {e}")
 
-# ========== DATABASE FUNCTIONS ==========
+async def delete_bot_prompt(context: ContextTypes.DEFAULT_TYPE, chat_id):
+    """Safely attempts to delete the bot's stored prompt message."""
+    prompt_id = context.user_data.pop('bot_prompt_message_id', None)
+    if prompt_id:
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=prompt_id)
+        except Exception as e:
+            logger.warning(f"Could not delete bot prompt message {prompt_id}: {e}")
+    return prompt_id
+
+# ========== DATABASE FUNCTIONS (omitted for brevity) ==========
 
 def init_db():
     conn = sqlite3.connect('bot_data.db')
@@ -240,13 +250,14 @@ def force_sub_required(func):
 
             channels_text = "\n".join(channels_text_list)
             text = (
-                " <b>Please join our world of anime:</b>\n\n"
+                "<b>Please join our Eorld of Anime first:</b>\n"
                 "After joining, click <b>Verify Subscription</b>."
             )
 
             if update.message:
                 await update.message.reply_text(text, parse_mode='HTML', reply_markup=reply_markup)
             elif update.callback_query:
+                # If triggered by a button press, edit the message text instead of replying
                 await update.callback_query.edit_message_text(text, parse_mode='HTML', reply_markup=reply_markup)
             return
         
@@ -271,6 +282,9 @@ async def add_channel_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             parse_mode='Markdown'
         )
         return
+
+    # Delete any pending bot prompt message from a failed state entry
+    await delete_bot_prompt(context, update.effective_chat.id)
 
     channel_username = args[0]
     channel_title = " ".join(args[1:])
@@ -304,6 +318,9 @@ async def remove_channel_command(update: Update, context: ContextTypes.DEFAULT_T
     # Deletes the /removechannel command message
     await delete_update_message(update)
 
+    # Delete any pending bot prompt message from a failed state entry
+    await delete_bot_prompt(context, update.effective_chat.id)
+
     args = context.args
     if len(args) != 1:
         await update.message.reply_text(
@@ -336,10 +353,20 @@ async def remove_channel_command(update: Update, context: ContextTypes.DEFAULT_T
 
 @force_sub_required
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Deletes the incoming /start command message
-    await delete_update_message(update)
-    
     user = update.effective_user
+    
+    # 1. Delete the incoming command message (User Input)
+    await delete_update_message(update)
+
+    # 2. DELETE THE BOT'S FORCE-SUB PROMPT MESSAGE (Bot Output)
+    # This is crucial for cleanup after successful verification via the 'Verify Subscription' button.
+    if update.callback_query and update.callback_query.message:
+        try:
+            # We delete the message that contained the 'Verify Subscription' button
+            await update.callback_query.message.delete()
+        except Exception as e:
+            logger.warning(f"Could not delete subscription prompt message: {e}")
+    
     add_user(user.id, user.username, user.first_name, user.last_name)
 
     if context.args and len(context.args) > 0:
@@ -348,6 +375,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if user.id == ADMIN_ID:
+        # Also clean up any pending state messages if admin hits /start
+        await delete_bot_prompt(context, update.effective_chat.id)
+        # Clear any states
+        user_states.pop(user.id, None)
+        context.user_data.pop('channel_username', None)
         await send_admin_menu(update.effective_chat.id, context)
     else:
         keyboard = [
@@ -361,7 +393,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # The welcome message is the EXCEPTION and is NOT deleted.
+        # NOTE: The resulting WELCOME MESSAGE is the exception and is NOT deleted.
         try:
             await context.bot.copy_message(
                 chat_id=update.effective_chat.id,
@@ -372,13 +404,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"Error copying welcome message: {e}")
             fallback_text = "👋 <b>Welcome to the bot!</b>"
-            await update.message.reply_text(fallback_text, parse_mode='HTML', reply_markup=reply_markup)
+            await context.bot.send_message(update.effective_chat.id, fallback_text, parse_mode='HTML', reply_markup=reply_markup)
+
 
 @force_sub_required
 async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
-    # Deletes the admin's input message (e.g., channel username/title for force-sub)
+    # 1. Deletes the admin's input message (User Input)
     await delete_update_message(update)
     
     if user_id not in user_states:
@@ -386,6 +419,9 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
 
     state = user_states[user_id]
     text = update.message.text
+
+    # 2. Delete the bot's prompt message from the previous step (Bot Output)
+    await delete_bot_prompt(context, update.effective_chat.id)
 
     if state == PENDING_BROADCAST:
         user_states.pop(user_id, None)
@@ -399,21 +435,27 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if state == ADD_CHANNEL_USERNAME:
         if not text.startswith('@'):
-            await update.message.reply_text("❌ Please include @ in channel username.", parse_mode='HTML')
+            msg = await update.message.reply_text("❌ Please include @ in channel username.", parse_mode='HTML')
+            context.user_data['bot_prompt_message_id'] = msg.message_id
             return
+            
         context.user_data['channel_username'] = text
         user_states[user_id] = ADD_CHANNEL_TITLE
-        await update.message.reply_text(
+        
+        # Send new prompt and store its ID
+        msg = await update.message.reply_text(
             "📝 Send channel title now.",
             parse_mode='HTML',
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 CANCEL", callback_data="manage_force_sub")]])
         )
+        context.user_data['bot_prompt_message_id'] = msg.message_id
+        
     elif state == ADD_CHANNEL_TITLE:
-        channel_username = context.user_data.get('channel_username')
+        channel_username = context.user_data.pop('channel_username', None)
         channel_title = text
+        user_states.pop(user_id, None)
+
         if add_force_sub_channel(channel_username, channel_title):
-            user_states.pop(user_id, None)
-            context.user_data.pop('channel_username', None)
             await update.message.reply_text(
                 f"✅ Channel added: {channel_title} ({channel_username})",
                 parse_mode='HTML',
@@ -421,14 +463,18 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
             )
         else:
             await update.message.reply_text("❌ Could not add. It may already exist.", parse_mode='HTML')
+            
     elif state == GENERATE_LINK_CHANNEL_USERNAME:
         channel_identifier = text.strip()
         if not (channel_identifier.startswith('@') or channel_identifier.startswith('-100') or channel_identifier.lstrip('-').isdigit()):
-            await update.message.reply_text(
+            msg = await update.message.reply_text(
                 "❌ Invalid format. Use @username or channel ID (-100...)", parse_mode='HTML'
             )
+            context.user_data['bot_prompt_message_id'] = msg.message_id
             return
+            
         user_states.pop(user_id, None)
+        
         try:
             chat = await context.bot.get_chat(channel_identifier)
             channel_title = chat.title
@@ -439,6 +485,7 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
                 parse_mode='HTML'
             )
             return
+            
         link_id = generate_link_id(str(channel_identifier), user_id)
         botname = context.bot.username
         deep_link = f"https://t.me/{botname}?start={link_id}"
@@ -448,6 +495,8 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK TO MENU", callback_data="admin_back")]])
         )
 
+# ... (rest of the code: button_handler, async helper functions like send_admin_menu, main)
+
 @force_sub_required
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -456,16 +505,20 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
 
     if data == "verify_subscription":
+        # Cleanup of the verification message will happen inside the start function
         return await start(update, context)
 
+    # ... (omitted: handling of close_message, admin_stats, user_management)
+    
     if user_id in user_states:
         current = user_states[user_id]
-        if current in [PENDING_BROADCAST, GENERATE_LINK_CHANNEL_USERNAME, ADD_CHANNEL_TITLE, ADD_CHANNEL_USERNAME] and data in ["admin_back", "admin_stats", "manage_force_sub", "generate_links", "user_management"]:
+        # Clear state on back button clicks, and delete the bot's prompt message
+        if current in [PENDING_BROADCAST, GENERATE_LINK_CHANNEL_USERNAME, ADD_CHANNEL_TITLE, ADD_CHANNEL_USERNAME] and data in ["admin_back", "manage_force_sub"]:
+            await delete_bot_prompt(context, query.message.chat_id)
             user_states.pop(user_id, None)
 
     if data == "close_message":
         try:
-            # This is the user's explicit action to clear the welcome message
             await query.delete_message()
         except Exception as e:
             logger.warning(f"Could not delete message: {e}")
@@ -476,16 +529,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("❌ Admin only", parse_mode='HTML')
             return
         user_states[user_id] = PENDING_BROADCAST
-        try:
-            await query.delete_message()
-        except:
-            pass
-        await context.bot.send_message(
+        
+        # Delete previous query message
+        try: await query.delete_message()
+        except: pass
+
+        # Send new prompt and store its ID
+        msg = await context.bot.send_message(
             chat_id=query.message.chat_id,
             text="📣 Send the message to broadcast now.",
             parse_mode='HTML',
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 CANCEL", callback_data="admin_back")]])
         )
+        context.user_data['bot_prompt_message_id'] = msg.message_id
         return
 
     if data == "admin_stats":
@@ -521,31 +577,40 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("❌ Admin only", parse_mode='HTML')
             return
         user_states[user_id] = GENERATE_LINK_CHANNEL_USERNAME
-        try:
-            await query.delete_message()
-        except:
-            pass
-        await context.bot.send_message(
+        
+        # Delete previous query message
+        try: await query.delete_message()
+        except: pass
+        
+        # Send new prompt and store its ID
+        msg = await context.bot.send_message(
             chat_id=query.message.chat_id,
             text="🔗 Send channel username or ID to generate deep link.",
             parse_mode='HTML',
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 CANCEL", callback_data="admin_back")]])
         )
+        context.user_data['bot_prompt_message_id'] = msg.message_id
+        
     elif data == "add_channel_start":
         if user_id != ADMIN_ID:
             await query.edit_message_text("❌ Admin only", parse_mode='HTML')
             return
         user_states[user_id] = ADD_CHANNEL_USERNAME
-        try:
-            await query.delete_message()
-        except:
-            pass
-        await context.bot.send_message(
+        
+        # Delete previous query message
+        try: await query.delete_message()
+        except: pass
+        
+        # Send new prompt and store its ID
+        msg = await context.bot.send_message(
             chat_id=query.message.chat_id,
             text="📢 Send @username of channel to add to force-sub list.",
             parse_mode='HTML',
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 CANCEL", callback_data="manage_force_sub")]])
         )
+        context.user_data['bot_prompt_message_id'] = msg.message_id
+
+    # ... (omitted: handling for channel_*, delete_*, confirm_delete_*, delete_channel_prompt)
 
     elif data.startswith("channel_"):
         if user_id != ADMIN_ID:
@@ -693,6 +758,11 @@ async def send_admin_menu(chat_id, context, query=None):
             await query.delete_message()
         except:
             pass
+            
+    # Always clear state and prompt message when going to main menu
+    context.user_data.pop('bot_prompt_message_id', None)
+    user_states.pop(chat_id, None) 
+    
     keyboard = [
         [InlineKeyboardButton("📊 BOT STATS", callback_data="admin_stats")],
         [InlineKeyboardButton("📢 MANAGE FORCE SUB CHANNELS", callback_data="manage_force_sub")],
@@ -744,10 +814,9 @@ async def show_force_sub_management(query, context):
     
     keyboard.append([InlineKeyboardButton("🔙 BACK TO MENU", callback_data="admin_back")])
     try:
-        await query.delete_message()
+        await query.edit_message_text(text=channels_text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
     except:
-        pass
-    await context.bot.send_message(chat_id=query.message.chat_id, text=channels_text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
+        await context.bot.send_message(chat_id=query.message.chat_id, text=channels_text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def show_channel_details(query, context, channel_username_clean):
     channel_username = '@' + channel_username_clean
@@ -868,4 +937,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
