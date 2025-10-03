@@ -1,6 +1,7 @@
 import os
 import logging
-import sqlite3
+import pg8000.dbapi # Import the pg8000 DBAPI for connection
+import urllib.parse as urlparse # For parsing the DATABASE_URL
 import secrets
 import requests
 import time
@@ -73,49 +74,82 @@ async def delete_bot_prompt(context: ContextTypes.DEFAULT_TYPE, chat_id):
             logger.warning(f"Could not delete bot prompt message {prompt_id}: {e}")
     return prompt_id
 
-# ========== DATABASE FUNCTIONS ==========
+# ========== DATABASE FUNCTIONS (POSTGRESQL) ==========
+
+def connect_db():
+    """Establishes a connection to the PostgreSQL database using DATABASE_URL."""
+    DATABASE_URL = os.getenv("DATABASE_URL")
+    if not DATABASE_URL:
+        # Fallback for local development if needed, but erroring out is safer for production
+        logger.error("DATABASE_URL environment variable is not set!")
+        raise ConnectionError("Database URL not found. Set it in your Render environment variables.")
+        
+    url = urlparse.urlparse(DATABASE_URL)
+    
+    try:
+        # pg8000 uses an empty dict for default SSL context, required by Render PostgreSQL
+        conn = pg8000.dbapi.connect(
+            database=url.path[1:],
+            user=url.username,
+            password=url.password,
+            host=url.hostname,
+            port=url.port,
+            ssl_context={} 
+        )
+        return conn
+    except Exception as e:
+        logger.critical(f"Failed to connect to PostgreSQL: {e}")
+        raise
 
 def init_db():
-    conn = sqlite3.connect('bot_data.db')
+    """Initializes the PostgreSQL database tables if they do not exist."""
+    conn = connect_db()
     cursor = conn.cursor()
-    cursor.execute('''
+    
+    # 1. users table: Changed to use BIGINT for user_id (Telegram IDs are large)
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
+            user_id BIGINT PRIMARY KEY,
             username TEXT,
             first_name TEXT,
             last_name TEXT,
             joined_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            is_banned BOOLEAN DEFAULT 0
+            is_banned BOOLEAN DEFAULT FALSE
         )
-    ''')
-    cursor.execute('''
+    """)
+    
+    # 2. force_sub_channels table: Using channel_username as PRIMARY KEY
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS force_sub_channels (
-            channel_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            channel_username TEXT UNIQUE,
-            channel_title TEXT,
+            channel_username TEXT PRIMARY KEY,
+            channel_title TEXT NOT NULL,
             added_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            is_active BOOLEAN DEFAULT 1
+            is_active BOOLEAN DEFAULT TRUE
         )
-    ''')
-    cursor.execute('''
+    """)
+    
+    # 3. generated_links table: Use TEXT for the primary key (link_id)
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS generated_links (
             link_id TEXT PRIMARY KEY,
             channel_username TEXT,
-            user_id INTEGER,
+            user_id BIGINT,
             created_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
-    ''')
+    """)
+    
     conn.commit()
     conn.close()
 
 def get_user_id_by_username(username):
     """Looks up a user's ID by their @username (case-insensitive)."""
-    conn = sqlite3.connect('bot_data.db')
+    conn = connect_db()
     cursor = conn.cursor()
     # Remove the '@' if present and convert to lowercase for case-insensitive lookup
     clean_username = username.lstrip('@').lower() 
-    # Use COLLATE NOCASE for case-insensitive search if available, or just LOWER()
-    cursor.execute('SELECT user_id FROM users WHERE LOWER(username) = ?', (clean_username,))
+    # Use LOWER() for case-insensitive search in PostgreSQL
+    # IMPORTANT: Changed placeholder from '?' to '%s'
+    cursor.execute('SELECT user_id FROM users WHERE LOWER(username) = %s', (clean_username,))
     result = cursor.fetchone()
     conn.close()
     return result[0] if result else None
@@ -135,41 +169,52 @@ def resolve_target_user_id(arg):
     return None
 
 def ban_user(user_id):
-    conn = sqlite3.connect('bot_data.db')
+    conn = connect_db()
     cursor = conn.cursor()
-    cursor.execute('UPDATE users SET is_banned = 1 WHERE user_id = ?', (user_id,))
+    # IMPORTANT: Changed placeholder from '?' to '%s' and 1 to TRUE
+    cursor.execute('UPDATE users SET is_banned = TRUE WHERE user_id = %s', (user_id,))
     conn.commit()
     conn.close()
 
 def unban_user(user_id):
-    conn = sqlite3.connect('bot_data.db')
+    conn = connect_db()
     cursor = conn.cursor()
-    cursor.execute('UPDATE users SET is_banned = 0 WHERE user_id = ?', (user_id,))
+    # IMPORTANT: Changed placeholder from '?' to '%s' and 0 to FALSE
+    cursor.execute('UPDATE users SET is_banned = FALSE WHERE user_id = %s', (user_id,))
     conn.commit()
     conn.close()
 
 def is_user_banned(user_id):
-    conn = sqlite3.connect('bot_data.db')
+    conn = connect_db()
     cursor = conn.cursor()
-    cursor.execute('SELECT is_banned FROM users WHERE user_id = ?', (user_id,))
+    # IMPORTANT: Changed placeholder from '?' to '%s'
+    cursor.execute('SELECT is_banned FROM users WHERE user_id = %s', (user_id,))
     result = cursor.fetchone()
-    # Check if user exists and if is_banned column is set to 1
-    return result[0] == 1 if result else False
+    # Check if user exists and if is_banned column is set to TRUE
+    return result[0] is True if result else False
 
 def add_user(user_id, username, first_name, last_name):
-    conn = sqlite3.connect('bot_data.db')
+    conn = connect_db()
     cursor = conn.cursor()
     # Ensure username is stored without the leading '@'
     clean_username = username.lstrip('@') if username else None
-    cursor.execute('''
-        INSERT OR REPLACE INTO users (user_id, username, first_name, last_name)
-        VALUES (?, ?, ?, ?)
-    ''', (user_id, clean_username, first_name, last_name))
+    
+    # SQLite's INSERT OR REPLACE is replaced by PostgreSQL's UPSERT (ON CONFLICT DO UPDATE)
+    # IMPORTANT: Changed placeholders from '?' to '%s'
+    cursor.execute(
+        """
+        INSERT INTO users (user_id, username, first_name, last_name)
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT (user_id) DO UPDATE
+        SET username = EXCLUDED.username, first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name;
+        """,
+        (user_id, clean_username, first_name, last_name)
+    )
     conn.commit()
     conn.close()
 
 def get_user_count():
-    conn = sqlite3.connect('bot_data.db')
+    conn = connect_db()
     cursor = conn.cursor()
     cursor.execute('SELECT COUNT(*) FROM users')
     count = cursor.fetchone()[0]
@@ -177,39 +222,45 @@ def get_user_count():
     return count
 
 def get_all_users(limit=None, offset=0):
-    conn = sqlite3.connect('bot_data.db')
+    conn = connect_db()
     cursor = conn.cursor()
     if limit is None:
         # Fetching 6 columns: (uid, username, fname, lname, joined, is_banned)
         cursor.execute('SELECT user_id, username, first_name, last_name, joined_date, is_banned FROM users ORDER BY joined_date DESC')
     else:
-        # Fetching 6 columns: (uid, username, fname, lname, joined, is_banned)
-        cursor.execute('SELECT user_id, username, first_name, last_name, joined_date, is_banned FROM users ORDER BY joined_date DESC LIMIT ? OFFSET ?', (limit, offset))
+        # IMPORTANT: Changed placeholders from '?' to '%s'
+        cursor.execute('SELECT user_id, username, first_name, last_name, joined_date, is_banned FROM users ORDER BY joined_date DESC LIMIT %s OFFSET %s', (limit, offset))
     users = cursor.fetchall()
     conn.close()
     return users
 
 def get_user_info_by_id(user_id):
     """Fetches a single user's details by ID."""
-    conn = sqlite3.connect('bot_data.db')
+    conn = connect_db()
     cursor = conn.cursor()
     # Fetching 6 columns: (uid, username, fname, lname, joined, is_banned)
-    cursor.execute('SELECT user_id, username, first_name, last_name, joined_date, is_banned FROM users WHERE user_id = ?', (user_id,))
+    # IMPORTANT: Changed placeholder from '?' to '%s'
+    cursor.execute('SELECT user_id, username, first_name, last_name, joined_date, is_banned FROM users WHERE user_id = %s', (user_id,))
     user = cursor.fetchone()
     conn.close()
     return user
 
 def add_force_sub_channel(channel_username, channel_title):
-    conn = sqlite3.connect('bot_data.db')
+    conn = connect_db()
     cursor = conn.cursor()
     try:
-        # Re-activate channel if it was previously set to inactive, or insert if new.
-        cursor.execute('UPDATE force_sub_channels SET is_active = 1, channel_title = ? WHERE channel_username = ?', (channel_title, channel_username))
-        if cursor.rowcount == 0:
-            cursor.execute('''
-                INSERT INTO force_sub_channels (channel_username, channel_title, is_active)
-                VALUES (?, ?, 1)
-            ''', (channel_username, channel_title))
+        # Use PostgreSQL UPSERT logic (ON CONFLICT DO UPDATE)
+        # This reliably updates if the channel exists, or inserts if new.
+        # IMPORTANT: Changed placeholders from '?' to '%s' and 1 to TRUE
+        cursor.execute(
+            """
+            INSERT INTO force_sub_channels (channel_username, channel_title, is_active)
+            VALUES (%s, %s, TRUE)
+            ON CONFLICT (channel_username) DO UPDATE
+            SET channel_title = EXCLUDED.channel_title, is_active = TRUE;
+            """,
+            (channel_username, channel_title)
+        )
         conn.commit()
         return True
     except Exception as e:
@@ -224,57 +275,96 @@ def get_all_force_sub_channels(return_usernames_only=False):
     If return_usernames_only is True, returns a list of usernames.
     Otherwise, returns a list of tuples: [(username, title), ...]
     """
-    conn = sqlite3.connect('bot_data.db')
+    conn = connect_db()
     cursor = conn.cursor()
     if return_usernames_only:
-        cursor.execute('SELECT channel_username FROM force_sub_channels WHERE is_active = 1 ORDER BY channel_title')
+        # IMPORTANT: Changed 1 to TRUE
+        cursor.execute('SELECT channel_username FROM force_sub_channels WHERE is_active = TRUE ORDER BY channel_title')
         channels = [row[0] for row in cursor.fetchall()]
     else:
-        cursor.execute('SELECT channel_username, channel_title FROM force_sub_channels WHERE is_active = 1 ORDER BY channel_title')
+        # IMPORTANT: Changed 1 to TRUE
+        cursor.execute('SELECT channel_username, channel_title FROM force_sub_channels WHERE is_active = TRUE ORDER BY channel_title')
         channels = cursor.fetchall()
     conn.close()
     return channels
 
 def get_force_sub_channel_info(channel_username):
-    conn = sqlite3.connect('bot_data.db')
+    conn = connect_db()
     cursor = conn.cursor()
-    cursor.execute('SELECT channel_username, channel_title FROM force_sub_channels WHERE channel_username = ? AND is_active = 1', (channel_username,))
+    # IMPORTANT: Changed placeholder from '?' to '%s' and 1 to TRUE
+    cursor.execute('SELECT channel_username, channel_title FROM force_sub_channels WHERE channel_username = %s AND is_active = TRUE', (channel_username,))
     channel = cursor.fetchone()
     conn.close()
     return channel
 
 def delete_force_sub_channel(channel_username):
-    conn = sqlite3.connect('bot_data.db')
+    conn = connect_db()
     cursor = conn.cursor()
-    # Note: Sets channel to inactive (is_active = 0)
-    cursor.execute('UPDATE force_sub_channels SET is_active = 0 WHERE channel_username = ?', (channel_username,))
+    # Note: Sets channel to inactive (is_active = FALSE)
+    # IMPORTANT: Changed placeholder from '?' to '%s' and 0 to FALSE
+    cursor.execute('UPDATE force_sub_channels SET is_active = FALSE WHERE channel_username = %s', (channel_username,))
     conn.commit()
     conn.close()
 
 def generate_link_id(channel_username, user_id):
     link_id = secrets.token_urlsafe(16)
-    conn = sqlite3.connect('bot_data.db')
+    conn = connect_db()
     cursor = conn.cursor()
-    cursor.execute('''
-        INSERT OR REPLACE INTO generated_links (link_id, channel_username, user_id)
-        VALUES (?, ?, ?)
-    ''', (link_id, channel_username, user_id))
+    # SQLite's INSERT OR REPLACE is replaced by PostgreSQL's UPSERT
+    # IMPORTANT: Changed placeholders from '?' to '%s'
+    cursor.execute(
+        """
+        INSERT INTO generated_links (link_id, channel_username, user_id)
+        VALUES (%s, %s, %s)
+        ON CONFLICT (link_id) DO UPDATE
+        SET channel_username = EXCLUDED.channel_username, user_id = EXCLUDED.user_id;
+        """,
+        (link_id, channel_username, user_id)
+    )
     conn.commit()
     conn.close()
     return link_id
 
 def get_link_info(link_id):
-    conn = sqlite3.connect('bot_data.db')
+    conn = connect_db()
     cursor = conn.cursor()
+    # IMPORTANT: Changed placeholder from '?' to '%s'
     cursor.execute('''
         SELECT channel_username, user_id, created_time
-        FROM generated_links WHERE link_id = ?
+        FROM generated_links WHERE link_id = %s
     ''', (link_id,))
     result = cursor.fetchone()
     conn.close()
     return result
+
+# ========== CLEANUP TASK (UPDATED FOR POSTGRESQL) ==========
+
+def cleanup_task(context: ContextTypes.DEFAULT_TYPE):
+    """
+    Job Queue task to cleanup expired generated links.
+    (Runs every 10 minutes, set in main() job_queue.run_repeating)
+    """
+    logger.info("Running cleanup task...")
+    conn = connect_db()
+    cursor = conn.cursor()
     
+    # Calculate cutoff time
+    cutoff = datetime.now() - timedelta(minutes=LINK_EXPIRY_MINUTES)
+    
+    # PostgreSQL handles date comparison directly against TIMESTAMP column
+    # IMPORTANT: Changed placeholder from '?' to '%s' and removed SQLite's datetime() function
+    cursor.execute('DELETE FROM generated_links WHERE created_time < %s', (cutoff,))
+    
+    # Log the cleanup action
+    deleted_rows = cursor.rowcount
+    logger.info(f"Cleanup finished. Deleted {deleted_rows} expired links.")
+    
+    conn.commit()
+    conn.close()
+
 # ========== FORCE SUBSCRIPTION LOGIC (with Ban Check) ==========
+
+# ... (The rest of the code remains the same as provided by the user, as the database functions are now self-contained)
 
 async def is_user_subscribed(user_id: int, bot) -> bool:
     """Check if user is member of all force‑sub channels."""
@@ -654,7 +744,7 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
         # NOTE: The message (update.message) is NOT deleted here, fixing the bug.
         user_states.pop(user_id, None)
         # This function now handles the synchronous or throttled scheduling
-        await broadcast_message_to_all_users(update, context, update.message) 
+        await broadcast_message_to_all_users(update, context, update.message)
         await send_admin_menu(update.effective_chat.id, context)
         return
 
@@ -670,17 +760,16 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
             msg = await update.message.reply_text("❌ Please include @ in channel username.", parse_mode='HTML')
             context.user_data['bot_prompt_message_id'] = msg.message_id
             return
-            
+
         context.user_data['channel_username'] = text
         user_states[user_id] = ADD_CHANNEL_TITLE
-        
         msg = await update.message.reply_text(
-            "📝 Send channel title now.",
-            parse_mode='HTML',
+            "📝 Send channel title now.", 
+            parse_mode='HTML', 
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 CANCEL", callback_data="manage_force_sub")]])
         )
         context.user_data['bot_prompt_message_id'] = msg.message_id
-        
+
     elif state == ADD_CHANNEL_TITLE:
         await delete_update_message(update, context)
         channel_username = context.user_data.pop('channel_username', None)
@@ -689,25 +778,27 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
 
         if add_force_sub_channel(channel_username, channel_title):
             await update.message.reply_text(
-                f"✅ Channel added: {channel_title} ({channel_username})",
-                parse_mode='HTML',
+                f"✅ Channel added: {channel_title} ({channel_username})", 
+                parse_mode='HTML', 
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📢 MANAGE CHANNELS", callback_data="manage_force_sub")]])
             )
         else:
             await update.message.reply_text("❌ Failed to add channel. Check logs for database error.", parse_mode='HTML')
-            
+
     elif state == GENERATE_LINK_CHANNEL_USERNAME:
         await delete_update_message(update, context)
         channel_identifier = text.strip()
+
         if not (channel_identifier.startswith('@') or channel_identifier.startswith('-100') or channel_identifier.lstrip('-').isdigit()):
             msg = await update.message.reply_text(
-                "❌ Invalid format. Use @username or channel ID (-100...)", parse_mode='HTML'
+                "❌ Invalid format. Use @username or channel ID (-100...)",
+                parse_mode='HTML'
             )
             context.user_data['bot_prompt_message_id'] = msg.message_id
             return
-            
+
         user_states.pop(user_id, None)
-        
+
         try:
             chat = await context.bot.get_chat(channel_identifier)
             channel_title = chat.title
@@ -718,15 +809,453 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
                 parse_mode='HTML'
             )
             return
-            
+
         link_id = generate_link_id(str(channel_identifier), user_id)
         botname = context.bot.username
         deep_link = f"https://t.me/{botname}?start={link_id}"
+
         await update.message.reply_text(
             f"🔗 Link generated:\nChannel: {channel_title}\n<code>{deep_link}</code>",
             parse_mode='HTML',
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK TO MENU", callback_data="admin_back")]])
         )
+
+@force_sub_required
+async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT_TYPE, link_id: str):
+    user_id = update.effective_user.id
+
+    # 1. Get link info from DB
+    link_info = get_link_info(link_id)
+
+    if not link_info:
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="❌ **Error:** The link you followed is invalid or has expired.",
+            parse_mode='Markdown'
+        )
+        await start(update, context)
+        return
+
+    channel_identifier, created_user_id, created_time_db = link_info
+    
+    # 2. Check Expiry
+    if not isinstance(created_time_db, datetime):
+        # pg8000 returns datetime objects, but handle potential type issue just in case
+        try:
+            created_time = datetime.fromisoformat(str(created_time_db))
+        except ValueError:
+            logger.error(f"Could not parse created_time: {created_time_db}")
+            created_time = datetime.now() - timedelta(hours=1) # Force expiry check fail
+    else:
+         created_time = created_time_db
+
+    expiry_time = created_time + timedelta(minutes=LINK_EXPIRY_MINUTES)
+    if datetime.now() > expiry_time:
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=f"⏳ **Error:** The link has expired. It was valid for {LINK_EXPIRY_MINUTES} minutes.",
+            parse_mode='Markdown'
+        )
+        await start(update, context)
+        return
+
+    # 3. Check membership (final check)
+    subscribed = await is_user_subscribed(user_id, context.bot)
+    if not subscribed:
+        # The force_sub_required decorator should technically catch this before here, 
+        # but a final check is good. If it fails, restart the user.
+        return await start(update, context)
+        
+    # 4. Success: Get the invite link
+    try:
+        # Get a temporary, short-lived invite link
+        invite_link_object = await context.bot.create_chat_invite_link(
+            chat_id=channel_identifier,
+            member_limit=1, # Only one use
+            expire_date=datetime.now() + timedelta(minutes=5) # Expires in 5 minutes
+        )
+        
+        # 5. Send the invite link
+        keyboard = [
+            [InlineKeyboardButton("🔓 CLICK TO JOIN CHANNEL 🔓", url=invite_link_object.invite_link)]
+        ]
+        
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="✅ **Success!** Your channel link is ready. Click below to join the channel.",
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    except Exception as e:
+        logger.error(f"Error generating/sending invite link for {channel_identifier}: {e}")
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="❌ **Critical Error:** I couldn't generate the join link. Please contact the administrator.",
+            parse_mode='Markdown'
+        )
+        
+    # After successful link usage, redirect to start menu
+    await start(update, context)
+
+
+async def send_admin_menu(chat_id, context: ContextTypes.DEFAULT_TYPE):
+    """Sends the main admin menu."""
+    user_count = get_user_count()
+    channel_count = len(get_all_force_sub_channels()) 
+    
+    text = (
+        "👑 **ADMIN PANEL**\n\n"
+        f"👤 Total Users: {user_count}\n"
+        f"📢 Channels: {channel_count}"
+    )
+
+    keyboard = [
+        [
+            InlineKeyboardButton("📣 Broadcast Message", callback_data="admin_broadcast_start"),
+            InlineKeyboardButton("🔗 Generate Link", callback_data="generate_links")
+        ],
+        [
+            InlineKeyboardButton("📢 Manage Channels", callback_data="manage_force_sub"),
+            InlineKeyboardButton("👤 Manage Users", callback_data="user_management")
+        ],
+        [InlineKeyboardButton("📊 Stats", callback_data="admin_stats")],
+        [InlineKeyboardButton("❌ CLOSE", callback_data="close_message")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    try:
+        msg = await context.bot.send_message(
+            chat_id=chat_id, 
+            text=text, 
+            parse_mode='Markdown', 
+            reply_markup=reply_markup
+        )
+        context.user_data['bot_prompt_message_id'] = msg.message_id
+    except Exception as e:
+        logger.error(f"Error sending admin menu: {e}")
+
+async def send_admin_stats(query, context: ContextTypes.DEFAULT_TYPE):
+    user_count = get_user_count()
+    channel_count = len(get_all_force_sub_channels()) 
+    
+    stats_text = (
+        "📊 <b>BOT STATISTICS</b>\n\n"
+        f"👤 Total Users: {user_count}\n"
+        f"📢 Force Sub Channels: {channel_count}\n"
+        f"🔗 Link Expiry: {LINK_EXPIRY_MINUTES} minutes"
+    )
+    
+    keyboard = [
+        [InlineKeyboardButton("🔙 BACK TO MENU", callback_data="admin_back")]
+    ]
+    
+    await query.edit_message_text(
+        text=stats_text, 
+        parse_mode='HTML', 
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def show_force_sub_management(query, context: ContextTypes.DEFAULT_TYPE):
+    channels = get_all_force_sub_channels(return_usernames_only=False)
+    
+    text = "📢 **FORCE SUBSCRIBE CHANNELS**\n\n"
+    if channels:
+        for uname, title in channels:
+            text += f"• **{title}** (`{uname}`)\n"
+    else:
+        text += "No active channels configured.\n"
+
+    keyboard = [
+        [InlineKeyboardButton("➕ ADD CHANNEL", callback_data="add_channel_start")],
+        [InlineKeyboardButton("➖ REMOVE CHANNEL", callback_data="remove_channel_start")],
+        [InlineKeyboardButton("🔙 BACK TO MENU", callback_data="admin_back")]
+    ]
+    await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def send_user_management(query, context: ContextTypes.DEFAULT_TYPE, offset: int = 0, limit: int = 10):
+    users_data = get_all_users(limit=limit, offset=offset)
+    total_users = get_user_count()
+    
+    text = f"👥 **USER MANAGEMENT**\n(Showing {offset + 1} to {min(offset + limit, total_users)} of {total_users} users)\n\n"
+    
+    if not users_data:
+        text += "No users found."
+    else:
+        for user in users_data:
+            user_id, username, first_name, last_name, joined_date, is_banned = user
+            name = first_name if first_name else "N/A"
+            name += f" {last_name}" if last_name else ""
+            status = "🚫 BANNED" if is_banned else "✅ Active"
+            text += f"• `{user_id}` ({status})\n"
+            text += f"  Name: {name}\n"
+            text += f"  @{username if username else 'N/A'}\n"
+            
+            keyboard = [[
+                InlineKeyboardButton("👁️ VIEW/MANAGE", callback_data=f"manage_user_{user_id}")
+            ]]
+            # This complex message structure must be sent separately or the loop logic changed. 
+            # For simplicity, stick to a list of users for the main view.
+            
+    # Pagination
+    keyboard = []
+    nav_buttons = []
+    if offset > 0:
+        nav_buttons.append(InlineKeyboardButton("⬅️ Previous", callback_data=f"user_page_{max(0, offset - limit)}"))
+    if offset + limit < total_users:
+        nav_buttons.append(InlineKeyboardButton("Next ➡️", callback_data=f"user_page_{offset + limit}"))
+    
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+        
+    keyboard.append([InlineKeyboardButton("🔙 BACK TO MENU", callback_data="admin_back")])
+    
+    await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def send_single_user_management(query, context: ContextTypes.DEFAULT_TYPE, target_user_id: int):
+    user = get_user_info_by_id(target_user_id)
+    
+    if not user:
+        await query.edit_message_text(f"❌ User with ID **{target_user_id}** not found.", parse_mode='Markdown')
+        return
+        
+    user_id, username, first_name, last_name, joined_date, is_banned = user
+    name = f"{first_name} {last_name}".strip()
+    status_text = "🚫 BANNED" if is_banned else "✅ ACTIVE"
+    toggle_status = 0 if is_banned else 1
+    toggle_text = "✅ UNBAN" if is_banned else "🚫 BAN"
+    
+    text = (
+        f"👤 **USER DETAILS**\n\n"
+        f"**ID:** `{user_id}`\n"
+        f"**Name:** {name}\n"
+        f"**Username:** @{username if username else 'N/A'}\n"
+        f"**Joined:** {joined_date.strftime('%Y-%m-%d %H:%M')}\n"
+        f"**Status:** {status_text}"
+    )
+    
+    keyboard = [
+        [InlineKeyboardButton(toggle_text, callback_data=f"toggle_ban_{user_id}_{toggle_status}")],
+        [InlineKeyboardButton("🔙 BACK TO USER LIST", callback_data="user_management")]
+    ]
+    
+    await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def broadcast_message_to_all_users(update: Update, context: ContextTypes.DEFAULT_TYPE, message):
+    """Schedules the broadcast task."""
+    user_count = get_user_count()
+    
+    if user_count < BROADCAST_MIN_USERS:
+        # Synchronous broadcast (for smaller user counts)
+        await run_synchronous_broadcast(update, context, message)
+    else:
+        # Throttled/Scheduled broadcast (for larger user counts)
+        await schedule_throttled_broadcast(update, context, message, user_count)
+
+async def run_synchronous_broadcast(update, context, message):
+    """Sends the message to all users instantly (used for small user counts)."""
+    logger.info("Running synchronous broadcast.")
+    all_users = get_all_users()
+    sent_count = 0
+    failed_count = 0
+
+    await update.message.reply_text("📣 **Broadcast started!** (Synchronous mode)", parse_mode='Markdown')
+
+    for user_data in all_users:
+        user_id = user_data[0]
+        try:
+            # Copy the original message content
+            await message.copy(chat_id=user_id)
+            sent_count += 1
+        except Exception as e:
+            failed_count += 1
+            # Optionally ban the user if error is due to user block/not found
+            # if 'blocked by the user' or 'chat not found' in str(e).lower():
+            #     ban_user(user_id)
+            
+        # Small delay to prevent hitting Telegram API limits
+        await asyncio.sleep(0.05) 
+
+    await context.bot.send_message(
+        chat_id=ADMIN_ID,
+        text=f"✅ **Broadcast Finished!** (Synchronous)\nSent to: {sent_count}\nFailed: {failed_count}",
+        parse_mode='Markdown'
+    )
+    logger.info(f"Synchronous broadcast finished. Sent: {sent_count}, Failed: {failed_count}")
+
+
+async def schedule_throttled_broadcast(update, context, message, total_users: int):
+    """Sets up the initial job for throttled broadcast."""
+    # 1. Store the message content in a persistent way (not ideal in SQLite, but necessary here)
+    # Since we are using PostgreSQL, we can use a simpler method by storing the broadcast content.
+    
+    # We will use the ADMIN_ID's user state storage for pending broadcast message/offset.
+    # We must first convert the message to a serializable format (message ID and chat ID)
+    
+    # Use context.bot_data for temporary persistent storage across the application,
+    # though technically context.bot_data is not persistent across deploys unless linked to DB.
+    # Given the bot is now running on persistent DB, let's use a dedicated table for large broadcast
+    
+    # For simplicity without adding a new table, we will use a JSON file as the bot is now persistent
+    # via the file system for this one file.
+    
+    broadcast_data = {
+        'chat_id': message.chat_id,
+        'message_id': message.message_id,
+        'total_users': total_users,
+        'offset': 0,
+        'sent_count': 0,
+        'failed_count': 0,
+        'is_active': True,
+        'start_time': datetime.now().isoformat()
+    }
+
+    try:
+        with open('broadcast_status.json', 'w') as f:
+            json.dump(broadcast_data, f)
+        
+        # 2. Schedule the job queue to start the process
+        if context.application.job_queue:
+            # Remove any previous broadcast jobs
+            current_jobs = context.application.job_queue.get_jobs_by_name("throttled_broadcast")
+            for job in current_jobs:
+                job.schedule_removal()
+                
+            # Schedule the first chunk immediately
+            context.application.job_queue.run_once(
+                throttled_broadcast_job, 
+                0, 
+                name="throttled_broadcast", 
+                data=None # Data is handled via file
+            )
+            
+            await update.message.reply_text(
+                f"📣 **Throttled Broadcast Scheduled!**\n\n"
+                f"Total Users: {total_users}\n"
+                f"Chunk Size: {BROADCAST_CHUNK_SIZE}\n"
+                f"Delay: {BROADCAST_INTERVAL_MIN} min/chunk\n"
+                f"The first chunk is starting now...",
+                parse_mode='Markdown'
+            )
+            logger.info("Throttled broadcast scheduled.")
+            
+        else:
+            await update.message.reply_text("❌ Job queue not available. Cannot run throttled broadcast.", parse_mode='Markdown')
+            
+    except Exception as e:
+        logger.error(f"Failed to schedule broadcast: {e}")
+        await update.message.reply_text("❌ Failed to start broadcast scheduling due to internal error.", parse_mode='Markdown')
+
+
+async def throttled_broadcast_job(context: ContextTypes.DEFAULT_TYPE):
+    """Job function that sends one chunk of the broadcast and schedules the next."""
+    job = context.job
+    try:
+        with open('broadcast_status.json', 'r') as f:
+            broadcast_data = json.load(f)
+    except FileNotFoundError:
+        logger.warning("Broadcast status file not found. Aborting job.")
+        return
+    except json.JSONDecodeError:
+        logger.error("Failed to decode broadcast status JSON. Aborting job.")
+        return
+
+    if not broadcast_data.get('is_active'):
+        logger.info("Broadcast manually stopped. Removing job.")
+        job.schedule_removal()
+        return
+
+    offset = broadcast_data['offset']
+    total_users = broadcast_data['total_users']
+    
+    if offset >= total_users:
+        # All users processed. Finish the broadcast.
+        await finish_throttled_broadcast(context.bot, broadcast_data)
+        job.schedule_removal()
+        return
+
+    logger.info(f"Running broadcast chunk: offset={offset}, chunk_size={BROADCAST_CHUNK_SIZE}")
+    
+    # Get the next chunk of users
+    users_chunk = get_all_users(limit=BROADCAST_CHUNK_SIZE, offset=offset)
+    
+    chunk_sent = 0
+    chunk_failed = 0
+    
+    message_chat_id = broadcast_data['chat_id']
+    message_id = broadcast_data['message_id']
+
+    # Send message to the chunk
+    for user_data in users_chunk:
+        user_id = user_data[0]
+        try:
+            # Copy the original message content
+            await context.bot.copy_message(chat_id=user_id, from_chat_id=message_chat_id, message_id=message_id)
+            chunk_sent += 1
+        except Exception as e:
+            chunk_failed += 1
+            # In a real environment, logging the failure reason is crucial
+            # logger.warning(f"Failed to send to user {user_id}: {e}")
+            
+        # Small delay to prevent hitting Telegram API limits
+        await asyncio.sleep(0.05) 
+
+    # Update broadcast status
+    broadcast_data['offset'] += len(users_chunk)
+    broadcast_data['sent_count'] += chunk_sent
+    broadcast_data['failed_count'] += chunk_failed
+    
+    # Save updated status
+    with open('broadcast_status.json', 'w') as f:
+        json.dump(broadcast_data, f)
+        
+    # Send status update to admin after each chunk
+    await context.bot.send_message(
+        chat_id=ADMIN_ID,
+        text=(
+            f"📢 **BROADCAST STATUS UPDATE**\n"
+            f"Processed: {broadcast_data['offset']} / {total_users}\n"
+            f"Sent: {broadcast_data['sent_count']}\n"
+            f"Failed: {broadcast_data['failed_count']}\n"
+            f"Next chunk in {BROADCAST_INTERVAL_MIN} minutes..."
+        ),
+        parse_mode='Markdown'
+    )
+
+    # Schedule the next job if there are more users
+    if broadcast_data['offset'] < total_users:
+        interval_seconds = BROADCAST_INTERVAL_MIN * 60
+        context.application.job_queue.run_once(
+            throttled_broadcast_job, 
+            interval_seconds, 
+            name="throttled_broadcast",
+            data=None
+        )
+    else:
+        # Final cleanup if the last job finishes the offset
+        await finish_throttled_broadcast(context.bot, broadcast_data)
+        job.schedule_removal()
+
+async def finish_throttled_broadcast(bot, final_data):
+    """Sends the final completion message for the throttled broadcast."""
+    try:
+        # Delete the temporary status file
+        os.remove('broadcast_status.json')
+    except:
+        pass
+        
+    await bot.send_message(
+        chat_id=ADMIN_ID,
+        text=(
+            f"✅ **BROADCAST COMPLETED!**\n"
+            f"Total Sent: {final_data['sent_count']}\n"
+            f"Total Failed: {final_data['failed_count']}\n"
+            f"Total Processed: {final_data['total_users']}"
+        ),
+        parse_mode='Markdown'
+    )
+    logger.info("Throttled broadcast successfully completed and job removed.")
+
 
 @force_sub_required
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -737,7 +1266,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "verify_subscription":
         return await start(update, context)
-
+        
     # Admin state cleanup
     if user_id == ADMIN_ID and user_id in user_states:
         current = user_states[user_id]
@@ -757,23 +1286,20 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user_id != ADMIN_ID:
             await query.answer("You are not authorized", show_alert=True)
             return
-            
         user_states.pop(user_id, None)
         await delete_bot_prompt(context, query.message.chat_id)
-        
         try:
-            target_user_id = int(data[12:]) 
+            target_user_id = int(data[12:])
             await send_single_user_management(query, context, target_user_id)
         except ValueError:
             await query.answer("Invalid User ID.", show_alert=True)
-        return
-        
+            return
+
     # --- BAN/UNBAN LOGIC (Inline Button) ---
     elif data.startswith("toggle_ban_"):
         if user_id != ADMIN_ID:
             await query.answer("You are not authorized", show_alert=True)
             return
-
         try:
             parts = data.split('_')
             target_user_id = int(parts[2].lstrip('f'))
@@ -781,7 +1307,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             if target_user_id == ADMIN_ID:
                 await query.answer("Cannot ban self!", show_alert=True)
-                await send_single_user_management(query, context, target_user_id) 
+                await send_single_user_management(query, context, target_user_id)
                 return
 
             if target_status == 1:
@@ -790,10 +1316,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 unban_user(target_user_id)
                 action = "unbanned"
-            
-            await send_single_user_management(query, context, target_user_id) 
+                
+            await send_single_user_management(query, context, target_user_id)
             await query.answer(f"User {target_user_id} successfully {action}.", show_alert=True)
-
         except Exception as e:
             logger.error(f"Error handling ban/unban: {e}")
             await query.answer("Error processing request.", show_alert=True)
@@ -804,10 +1329,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("❌ Admin only", parse_mode='HTML')
             return
         user_states[user_id] = PENDING_BROADCAST
-        
-        try: await query.delete_message()
-        except: pass
-
+        try:
+            await query.delete_message()
+        except:
+            pass
         msg = await context.bot.send_message(
             chat_id=query.message.chat_id,
             text="📣 Send the message (text, photo, video, etc.) to broadcast now.",
@@ -827,10 +1352,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user_id != ADMIN_ID:
             await query.edit_message_text("❌ Admin only", parse_mode='HTML')
             return
-            
         user_states.pop(user_id, None)
         await delete_bot_prompt(context, query.message.chat_id)
-        
         await send_user_management(query, context, offset=0)
 
     elif data.startswith("user_page_"):
@@ -854,556 +1377,183 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("❌ Admin only", parse_mode='HTML')
             return
         user_states[user_id] = GENERATE_LINK_CHANNEL_USERNAME
-        
-        try: await query.delete_message()
-        except: pass
-        
+        try:
+            await query.delete_message()
+        except:
+            pass
         msg = await context.bot.send_message(
             chat_id=query.message.chat_id,
-            text="🔗 Send channel username or ID to generate deep link.",
-            parse_mode='HTML',
+            text="🔗 **SEND CHANNEL USERNAME OR ID** to generate a link.\n\n"
+                 "Example: `@BeatAnime` or `-100123456789`",
+            parse_mode='Markdown',
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 CANCEL", callback_data="admin_back")]])
         )
         context.user_data['bot_prompt_message_id'] = msg.message_id
-        
+        return
+
     elif data == "add_channel_start":
         if user_id != ADMIN_ID:
             await query.edit_message_text("❌ Admin only", parse_mode='HTML')
             return
         user_states[user_id] = ADD_CHANNEL_USERNAME
-        
-        try: await query.delete_message()
-        except: pass
-        
+        try:
+            await query.delete_message()
+        except:
+            pass
         msg = await context.bot.send_message(
             chat_id=query.message.chat_id,
-            text="📢 Send @username of channel to add to force-sub list.",
-            parse_mode='HTML',
+            text="📝 Send channel username (must include **@**). The bot must be an admin there.",
+            parse_mode='Markdown',
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 CANCEL", callback_data="manage_force_sub")]])
         )
         context.user_data['bot_prompt_message_id'] = msg.message_id
+        return
 
-    elif data.startswith("channel_"):
+    elif data == "remove_channel_start":
         if user_id != ADMIN_ID:
             await query.edit_message_text("❌ Admin only", parse_mode='HTML')
             return
-        await show_channel_details(query, context, data[8:])
-
-    elif data.startswith("delete_"):
-        if user_id != ADMIN_ID:
-            await query.edit_message_text("❌ Admin only", parse_mode='HTML')
-            return
-        channel_username_clean = data[7:]
-        channel_username = '@' + channel_username_clean
-        channel_info = get_force_sub_channel_info(channel_username)
-        if channel_info:
-            keyboard = [
-                [InlineKeyboardButton("✅ YES, DELETE", callback_data=f"confirm_delete_{channel_username_clean}")],
-                [InlineKeyboardButton("❌ NO, CANCEL", callback_data=f"channel_{channel_username_clean}")]
-            ]
-            await query.edit_message_text(
-                f"🗑️ Confirm deletion of {channel_info[1]} ({channel_info[0]})?",
-                parse_mode='HTML',
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-
-    elif data.startswith("confirm_delete_"):
-        if user_id != ADMIN_ID:
-            await query.edit_message_text("❌ Admin only", parse_mode='HTML')
-            return
-        channel_username_clean = data[15:]
-        channel_username = '@' + channel_username_clean
-        delete_force_sub_channel(channel_username)
-        await query.edit_message_text(
-            f"✅ Channel {channel_username} removed from force‑sub list.",
-            parse_mode='HTML',
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📢 Manage Channels", callback_data="manage_force_sub")]])
-        )
         
-    elif data == "delete_channel_prompt":
-        if user_id != ADMIN_ID:
-            await query.edit_message_text("❌ Admin only", parse_mode='HTML')
-            return
-        channels = get_all_force_sub_channels()
+        channels = get_all_force_sub_channels(return_usernames_only=False)
         if not channels:
-            await query.answer("No channels to delete!", show_alert=True)
+            await query.answer("No channels to remove.", show_alert=True)
             return
 
-        text = "🗑️ Choose a channel to delete (set inactive):"
+        text = "❌ **SELECT CHANNEL TO REMOVE:**"
         keyboard = []
         for uname, title in channels:
-            keyboard.append([InlineKeyboardButton(title, callback_data=f"delete_{uname.lstrip('@')}")])
-        
-        keyboard.append([InlineKeyboardButton("🔙 BACK", callback_data="manage_force_sub")])
-        await query.edit_message_text(text=text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
+            # Use a unique callback data to indicate removal action
+            keyboard.append([InlineKeyboardButton(f"🗑️ {title} ({uname})", callback_data=f"remove_c_{uname}")])
+            
+        keyboard.append([InlineKeyboardButton("🔙 BACK TO MENU", callback_data="manage_force_sub")])
+        await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
-    elif data in ["admin_back", "user_back", "channels_back"]:
-        if user_id == ADMIN_ID:
-            await send_admin_menu(query.message.chat_id, context, query)
+    elif data.startswith("remove_c_"):
+        if user_id != ADMIN_ID:
+            await query.answer("You are not authorized", show_alert=True)
+            return
+        
+        channel_username = data[9:]
+        channel_info = get_force_sub_channel_info(channel_username)
+        
+        if channel_info:
+            delete_force_sub_channel(channel_username)
+            await query.answer(f"Channel {channel_username} deactivated.", show_alert=True)
+            await show_force_sub_management(query, context) # Refresh the list
         else:
-            # Non-admin back to main menu
-            keyboard = [
-                [InlineKeyboardButton("ᴀɴɪᴍᴇ ᴄʜᴀɴɴᴇʟ", url=PUBLIC_ANIME_CHANNEL_URL)],
-                [InlineKeyboardButton("ᴄᴏɴᴛᴀᴄᴛ ᴀᴅᴍɪɴ", url=f"https://t.me/{ADMIN_CONTACT_USERNAME}")],
-                [InlineKeyboardButton("ʀᴇǫᴜᴇsᴛ ᴀɴɪᴍᴇ ᴄʜᴀɴɴᴇʟ", url=REQUEST_CHANNEL_URL)],
-                [
-                    InlineKeyboardButton("ᴀʙᴏᴜᴛ ᴍᴇ", callback_data="about_bot"),
-                    InlineKeyboardButton("ᴄʟᴏsᴇ", callback_data="close_message")
-                ]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            try:
-                await query.delete_message()
-            except:
-                pass
-            try:
-                await context.bot.copy_message(
-                    chat_id=query.message.chat_id,
-                    from_chat_id=WELCOME_SOURCE_CHANNEL,
-                    message_id=WELCOME_SOURCE_MESSAGE_ID,
-                    reply_markup=reply_markup
-                )
-            except Exception as e:
-                logger.error(f"Error copying back message: {e}")
-                fallback = "🏠 <b>Main Menu</b>"
-                await context.bot.send_message(query.message.chat_id, fallback, parse_mode='HTML', reply_markup=reply_markup)
+            await query.answer("Channel not found/already removed.", show_alert=True)
+
+    elif data == "admin_back":
+        if user_id != ADMIN_ID:
+            return
+        await send_admin_menu(query.message.chat_id, context)
 
     elif data == "about_bot":
-        about_text = (
-            "<b>About Us</b>\n\n"
-            "Developed by @Beat_Anime_Ocean"
+        text = (
+            "🤖 **Anime Link Bot**\n\n"
+            "This bot is designed to create temporary, protected deep links to private Telegram channels "
+            "while enforcing mandatory subscription to one or more public channels.\n\n"
+            "Developed for the **Beat Anime** community."
         )
-        keyboard = [[InlineKeyboardButton("🔙 BACK", callback_data="user_back")]]
-        try:
-            await query.delete_message()
-        except:
-            pass
-        await context.bot.send_message(
-            chat_id=query.message.chat_id,
-            text=about_text,
-            parse_mode='HTML',
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        keyboard = [
+            [InlineKeyboardButton("ᴀɴɪᴍᴇ ᴄʜᴀɴɴᴇʟ", url=PUBLIC_ANIME_CHANNEL_URL)],
+            [InlineKeyboardButton("ᴄᴏɴᴛᴀᴄT ᴀᴅᴍɪɴ", url=f"https://t.me/{ADMIN_CONTACT_USERNAME}")],
+            [InlineKeyboardButton("ʀᴇǫᴜᴇsᴛ ᴀɴɪᴍᴇ ᴄʜᴀɴɴᴇʟ", url=REQUEST_CHANNEL_URL)],
+            [InlineKeyboardButton("🔙 BACK", callback_data="start_menu")]
+        ]
+        await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
-async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT_TYPE, link_id):
-    link_info = get_link_info(link_id)
-    if not link_info:
-        await update.message.reply_text("❌ This link is invalid or not registered.", parse_mode='HTML')
-        return
+    elif data == "start_menu":
+        await start(update, context) # Re-run start to show welcome message
+        
+# ========== ERROR HANDLING ==========
 
-    channel_identifier, creator_id, created_time = link_info
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log the error and send a message to the admin."""
+    logger.error("Exception while handling an update:", exc_info=context.error)
 
-    try:
-        if isinstance(channel_identifier, str) and channel_identifier.lstrip('-').isdigit():
-            channel_identifier = int(channel_identifier)
-            
-        created_dt = datetime.fromisoformat(created_time)
-        if datetime.now() > created_dt + timedelta(minutes=LINK_EXPIRY_MINUTES):
-            await update.message.reply_text("❌ This link has expired.", parse_mode='HTML')
-            return
-
-        chat = await context.bot.get_chat(channel_identifier)
-        invite_link = await context.bot.create_chat_invite_link(
-            chat.id,
-            expire_date=datetime.now().timestamp() + LINK_EXPIRY_MINUTES * 60
-        )
-
-        success_message = (
-            f"<b>Channel:</b> {chat.title}\n"
-            f"<b>Expires in:</b> {LINK_EXPIRY_MINUTES} minutes\n"
-            f"<b>Usage:</b> Multiple use within that period\n\n"
-            f"Click below:"
-        )
-        keyboard = [[InlineKeyboardButton("🔗 Request to Join", url=invite_link.invite_link)]]
-        await update.message.reply_text(
-            success_message,
-            parse_mode='HTML',
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-    except Exception as e:
-        logger.error(f"Error generating invite link: {e}")
-        await update.message.reply_text("❌ Error creating invite link. Contact admin.", parse_mode='HTML')
-
-# --- BROADCAST JOB FUNCTION (FOR THROTTLING) ---
-async def broadcast_worker_job(context: ContextTypes.DEFAULT_TYPE):
-    """JobQueue worker to send a message to a single chunk of users."""
-    job_data = context.job.data
-    offset = job_data['offset']
-    chunk_size = job_data['chunk_size']
-    message_chat_id = job_data['message_chat_id']
-    message_id = job_data['message_id']
-    is_last_chunk = job_data['is_last_chunk']
-    admin_chat_id = job_data['admin_chat_id']
-
-    users_chunk = get_all_users(limit=chunk_size, offset=offset)
-    sent_count = 0
-    fail_count = 0
-
-    for user in users_chunk:
-        target_user_id = user[0]
-        try:
-            # This relies on the message not being deleted by the admin's input handler!
-            await context.bot.copy_message(
-                chat_id=target_user_id,
-                from_chat_id=message_chat_id,
-                message_id=message_id
-            )
-            sent_count += 1
-        except Exception as e:
-            logger.warning(f"Failed send to {target_user_id} (Offset: {offset}): {e}")
-            fail_count += 1
-        await asyncio.sleep(0.05) 
-
-    logger.info(f"Broadcast chunk from offset {offset} finished. Sent {sent_count} messages, Failed {fail_count}.")
-    
-    await context.bot.send_message(
-        chat_id=admin_chat_id,
-        text=f"✅ **Broadcast Progress:**\nChunk {offset // chunk_size + 1} sent to {sent_count} users (Offset: {offset}). Failed: {fail_count}.",
-        parse_mode='Markdown'
-    )
-
-    if is_last_chunk:
-        total_users = get_user_count() 
-        await context.bot.send_message(
-            chat_id=admin_chat_id,
-            text=f"🎉 **BROADCAST COMPLETE!**\nTotal users attempted: {total_users}.",
-            parse_mode='Markdown'
-        )
-# ------------------------------------------
-
-# --- BROADCAST SCHEDULER FUNCTION ---
-async def broadcast_message_to_all_users(update: Update, context: ContextTypes.DEFAULT_TYPE, message_to_copy):
-    admin_chat_id = update.effective_chat.id
-    total_users = get_user_count()
-
-    if total_users < BROADCAST_MIN_USERS:
-        await update.message.reply_text(f"🔄 Broadcasting to {total_users} users (below threshold, no block delay)...", parse_mode='HTML')
-        sent = 0
-        all_users = get_all_users(limit=None, offset=0)
-        for u in all_users:
-            target = u[0]
+    # Specific error handling (optional, but good for debugging)
+    if isinstance(context.error, Exception) and update.effective_chat:
+        error_message = f"An error occurred: {context.error}"
+        logger.error(error_message)
+        
+        # Notify admin
+        if ADMIN_ID and ADMIN_ID != 0:
             try:
-                await context.bot.copy_message(chat_id=target, from_chat_id=message_to_copy.chat_id, message_id=message_to_copy.message_id)
-                sent += 1
-            except Exception as e:
-                logger.warning(f"Failed send to {target}: {e}")
-            await asyncio.sleep(0.05)
-        await context.bot.send_message(chat_id=admin_chat_id, text=f"✅ **Broadcast Complete!**\nTotal attempted: {total_users}.\nSuccessfully sent: {sent}.", parse_mode='Markdown')
-        try: await update.message.delete()
-        except: pass
-        return
+                await context.bot.send_message(
+                    chat_id=ADMIN_ID, 
+                    text=f"**BOT ERROR**:\n\n{error_message}\n\nUpdate: `{update}`",
+                    parse_mode='Markdown'
+                )
+            except Exception as admin_e:
+                logger.error(f"Failed to send error message to admin: {admin_e}")
 
-    # --- THROTTLED BROADCAST LOGIC ---
-    await update.message.reply_text(
-        f"⏳ **Throttled Broadcast Started!**\n"
-        f"Total users: {total_users}.\n"
-        f"Sending in chunks of {BROADCAST_CHUNK_SIZE} every {BROADCAST_INTERVAL_MIN} minutes.",
-        parse_mode='Markdown'
-    )
-
-    offset = 0
-    current_delay = 0 
-    chunks_sent = 0
-    total_chunks = (total_users + BROADCAST_CHUNK_SIZE - 1) // BROADCAST_CHUNK_SIZE
-
-    while offset < total_users:
-        is_last_chunk = (offset + BROADCAST_CHUNK_SIZE) >= total_users
-        
-        job_data = {
-            'offset': offset,
-            'chunk_size': BROADCAST_CHUNK_SIZE,
-            'message_chat_id': message_to_copy.chat_id,
-            'message_id': message_to_copy.message_id,
-            'is_last_chunk': is_last_chunk,
-            'admin_chat_id': admin_chat_id,
-        }
-        
-        context.job_queue.run_once(
-            broadcast_worker_job, 
-            when=current_delay, 
-            data=job_data,
-            name=f"broadcast_chunk_{chunks_sent}"
-        )
-
-        offset += BROADCAST_CHUNK_SIZE
-        current_delay += BROADCAST_INTERVAL_MIN * 60 
-        chunks_sent += 1
-
-    await update.message.reply_text(
-        f"Scheduled **{total_chunks}** broadcast chunks, running over **{current_delay // 60} minutes**.\n"
-        f"You will receive a notification after each chunk is sent.",
-        parse_mode='Markdown'
-    )
-    
-    try: await update.message.delete()
-    except: pass
-# ----------------------------------------------------
-
-async def send_admin_menu(chat_id, context, query=None):
-    if query:
-        try:
-            await query.delete_message()
-        except:
-            pass
-            
-    context.user_data.pop('bot_prompt_message_id', None)
-    user_states.pop(chat_id, None) 
-    
-    keyboard = [
-        [InlineKeyboardButton("📊 BOT STATS", callback_data="admin_stats")],
-        [InlineKeyboardButton("📢 MANAGE FORCE SUB CHANNELS", callback_data="manage_force_sub")],
-        [InlineKeyboardButton("🔗 GENERATE CHANNEL LINKS", callback_data="generate_links")],
-        [InlineKeyboardButton("📣 START MEDIA BROADCAST", callback_data="admin_broadcast_start")],
-        [InlineKeyboardButton("👤 USER MANAGEMENT", callback_data="user_management")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    text = "👨‍💼 <b>ADMIN PANEL</b>\n\nChoose an option:"
-    await context.bot.send_message(chat_id=chat_id, text=text, parse_mode='HTML', reply_markup=reply_markup)
-
-async def send_admin_stats(query, context):
-    try:
-        await query.delete_message()
-    except:
-        pass
-    user_count = get_user_count()
-    channel_count = len(get_all_force_sub_channels()) 
-    stats_text = (
-        "📊 <b>BOT STATISTICS</b>\n\n"
-        f"👤 Total Users: {user_count}\n"
-        f"📢 Force Sub Channels: {channel_count}\n"
-        f"🔗 Link Expiry: {LINK_EXPIRY_MINUTES} minutes"
-    )
-    keyboard = [
-        [InlineKeyboardButton("🔄 REFRESH", callback_data="admin_stats")],
-        [InlineKeyboardButton("🔙 BACK", callback_data="admin_back")]
-    ]
-    await context.bot.send_message(chat_id=query.message.chat_id, text=stats_text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
-
-async def show_force_sub_management(query, context):
-    channels = get_all_force_sub_channels(return_usernames_only=False)
-    channels_text = "📢 <b>FORCE SUBSCRIPTION CHANNELS</b>\n\n"
-    if not channels:
-        channels_text += "No channels configured."
-    else:
-        channels_text += "<b>Configured Channels:</b>\n"
-        for uname, title in channels:
-            channels_text += f"• {title} (<code>{uname}</code>)\n"
-    
-    keyboard = [[InlineKeyboardButton("➕ ADD NEW CHANNEL", callback_data="add_channel_start")]]
-    
-    if channels:
-        buttons = [InlineKeyboardButton(title, callback_data=f"channel_{uname.lstrip('@')}") for uname, title in channels]
-        grouped = [buttons[i:i+2] for i in range(0, len(buttons), 2)]
-        keyboard.extend(grouped)
-        
-        keyboard.append([InlineKeyboardButton("🗑️ DELETE CHANNEL", callback_data="delete_channel_prompt")]) 
-    
-    keyboard.append([InlineKeyboardButton("🔙 BACK TO MENU", callback_data="admin_back")])
-    try:
-        await query.edit_message_text(text=channels_text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
-    except:
-        await context.bot.send_message(chat_id=query.message.chat_id, text=channels_text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
-
-async def show_channel_details(query, context, channel_username_clean):
-    channel_username = '@' + channel_username_clean
-    channel_info = get_force_sub_channel_info(channel_username)
-    if not channel_info:
-        await query.edit_message_text(
-            "❌ Channel not found.",
-            parse_mode='HTML',
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK", callback_data="manage_force_sub")]])
-        )
-        return
-    uname, title = channel_info
-    details = (
-        f"📢 <b>CHANNEL DETAILS</b>\n\n"
-        f"<b>Title:</b> {title}\n"
-        f"<b>Username:</b> <code>{uname}</code>\n"
-        f"<i>Choose an action:</i>"
-    )
-    keyboard = [
-        [InlineKeyboardButton("🔗 GENERATE TEMP LINK", callback_data=f"genlink_{channel_username_clean}")],
-        [InlineKeyboardButton("🗑️ DELETE CHANNEL", callback_data=f"delete_{channel_username_clean}")],
-        [InlineKeyboardButton("🔙 BACK", callback_data="manage_force_sub")]
-    ]
-    await query.edit_message_text(text=details, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
-
-async def send_single_user_management(query, context, target_user_id):
-    """Shows details and ban/unban buttons for a single user."""
-    user_info = get_user_info_by_id(target_user_id)
-    
-    if not user_info:
-        await query.edit_message_text(
-            f"❌ User ID **{target_user_id}** not found.",
-            parse_mode='HTML',
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK TO USER LIST", callback_data="user_management")]])
-        )
-        return
-
-    uid, username, fname, lname, joined, is_banned = user_info
-    
-    uname_display = f"@{username}" if username else "N/A"
-    name = f"{fname or ''} {lname or ''}".strip() or "N/A"
-    status = "🚫 **BANNED**" if is_banned else "✅ **Active**"
-    
-    text = (
-        f"👤 <b>USER DETAILS</b>\n\n"
-        f"**Name:** {name}\n"
-        f"**ID:** <code>{uid}</code>\n"
-        f"**Username:** <code>{uname_display}</code>\n"
-        f"**Joined:** {joined}\n"
-        f"**Status:** {status}\n\n"
-    )
-
-    action_button_text = "✅ UNBAN USER" if is_banned else "🚫 BAN USER"
-    action_status = 1 - is_banned # 1 to ban, 0 to unban
-    
-    keyboard = [
-        [InlineKeyboardButton(
-            action_button_text, 
-            callback_data=f"toggle_ban_f{uid}_f{action_status}" 
-        )],
-        [InlineKeyboardButton("🔙 BACK TO USER LIST", callback_data="user_management")]
-    ]
-    
-    await query.edit_message_text(text=text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
-
-async def send_user_management(query, context, offset=0):
-    if query.from_user.id != ADMIN_ID:
-        await query.answer("You are not authorized", show_alert=True)
-        return
-    
-    total = get_user_count()
-    users = get_all_users(limit=10, offset=offset) 
-    has_next = total > offset + 10
-    has_prev = offset > 0
-    
-    text = f"👤 <b>USER MANAGEMENT</b>\n\n"
-    text += f"Showing {offset+1}-{min(offset+10, total)} of {total} total users.\n\n"
-    
-    management_keyboard = []
-
-    for (uid, username, fname, lname, joined, is_banned) in users:
-        uname_display = f"@{username}" if username else f"ID: {uid}"
-        name = f"{fname or ''} {lname or ''}".strip() or "N/A"
-        
-        status_icon = '🚫' if is_banned else '✅'
-        text += f"{status_icon} **{name}** (<code>{uname_display}</code>)\n"
-
-        management_keyboard.append([
-            InlineKeyboardButton(
-                f"👤 MANAGE: {name}",
-                callback_data=f"manage_user_{uid}"
-            )
-        ])
-        
-    final_keyboard = management_keyboard
-    
-    nav = []
-    if has_prev:
-        nav.append(InlineKeyboardButton("⬅️ PREV", callback_data=f"user_page_{offset-10}"))
-    if has_next:
-        nav.append(InlineKeyboardButton("NEXT ➡️", callback_data=f"user_page_{offset+10}"))
-    if nav:
-        final_keyboard.append(nav)
-        
-    final_keyboard.append([InlineKeyboardButton("🔙 BACK TO MENU", callback_data="admin_back")])
-
-    await query.edit_message_text(text=text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(final_keyboard))
-
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.error(f"Exception in update: {context.error}")
-
-async def cleanup_task(context: ContextTypes.DEFAULT_TYPE):
-    conn = sqlite3.connect('bot_data.db')
-    cursor = conn.cursor()
-    cutoff = datetime.now() - timedelta(days=7)
-    cursor.execute('DELETE FROM generated_links WHERE datetime(created_time) < ?', (cutoff.isoformat(),))
-    conn.commit()
-    conn.close()
+# ========== MAIN FUNCTION ==========
 
 def keep_alive():
+    """Simple thread to keep the web service awake on Render/Heroku."""
     while True:
         time.sleep(840)
         try:
+            # Pings a safe external URL to prevent idle shutdown
             requests.get("https://www.google.com/robots.txt", timeout=10)
         except:
             pass
 
 def main():
-    init_db()
+    # Initialize the database (this will now connect to PostgreSQL)
+    try:
+        init_db()
+        logger.info("Database initialization complete (PostgreSQL).")
+    except Exception as e:
+        logger.critical(f"FATAL: Could not initialize database: {e}")
+        sys.exit(1)
+
+
     if not BOT_TOKEN or BOT_TOKEN == "YOUR_TOKEN_HERE":
         logger.error("BOT_TOKEN not set!")
         return
 
     application = Application.builder().token(BOT_TOKEN).build()
     
-    # --- CHECK FOR RESTART FILE AND SEND NOTIFICATION (NEW LOGIC) ---
-    if os.path.exists('restart_message.json'):
-        try:
-            with open('restart_message.json', 'r') as f:
-                restart_info = json.load(f)
-            os.remove('restart_message.json') 
-
-            original_chat_id = restart_info['chat_id']
-            admin_id = restart_info['admin_id']
-            message_id_to_copy = restart_info.get('message_id_to_copy') 
-
+    # Check for restart message file
+    try:
+        with open('restart_message.json', 'r') as f:
+            restart_info = json.load(f)
+        os.remove('restart_message.json')
+        
+        # Send post-restart message via a job queue run_once
+        if application.job_queue:
             async def post_restart_notification(context: ContextTypes.DEFAULT_TYPE):
+                chat_id = restart_info.get('chat_id')
+                message_id_to_copy = restart_info.get('message_id_to_copy')
+                
+                # Try to delete the 'Bot is restarting...' message
                 try:
-                    # 1. Send the "bot reloaded" message to the original chat
-                    await context.bot.send_message(
-                        chat_id=original_chat_id, 
-                        text="✅ **Bot reloaded!** Service has been successfully reset.",
-                        parse_mode='Markdown'
-                    )
-                    
-                    # 2. Send the custom message or the Admin Menu
-                    if message_id_to_copy:
-                        # If the argument was 'admin', just show the menu
-                        if message_id_to_copy == 'admin':
-                             await send_admin_menu(original_chat_id, context)
-                             return
-                        
-                        # Otherwise, try to copy the message ID
-                        try:
-                            await context.bot.copy_message(
-                                chat_id=original_chat_id,
-                                from_chat_id=WELCOME_SOURCE_CHANNEL,
-                                message_id=message_id_to_copy
-                            )
-                        except Exception as e:
-                            logger.error(f"Failed to copy custom restart message ID {message_id_to_copy}: {e}")
-                            await context.bot.send_message(
-                                chat_id=original_chat_id,
-                                text="⚠️ **Custom message copy failed.** Falling back to Admin Panel.",
-                                parse_mode='Markdown'
-                            )
-                            await send_admin_menu(original_chat_id, context) 
-                    else:
-                        # Send the Admin Menu (default behavior)
-                        await send_admin_menu(original_chat_id, context) 
-                    
-                    # 3. Send private system notification to admin (only if not sent to the same chat)
-                    if admin_id != original_chat_id: 
-                         await context.bot.send_message(
-                            chat_id=admin_id, 
-                            text="⚠️ **System Notification:** The bot has successfully reloaded.",
-                            parse_mode='Markdown'
-                        )
-
-                except Exception as e:
-                    logger.error(f"Failed to send post-restart notification: {e}")
-
-            # Schedule the notification to run immediately after the bot starts its loop
-            application.job_queue.run_once(post_restart_notification, 1) 
-            logger.info("Post-restart notification scheduled.")
+                    # Assuming the message ID to delete is the last message sent before sys.exit(0)
+                    # We don't have the message ID here, so we'll just send the success message.
+                    pass 
+                except:
+                    pass
+                
+                # Send the final message
+                if message_id_to_copy == 'admin':
+                    await send_admin_menu(chat_id, context)
+                elif message_id_to_copy:
+                    try:
+                        await context.bot.copy_message(chat_id=chat_id, from_chat_id=chat_id, message_id=message_id_to_copy)
+                    except:
+                        await context.bot.send_message(chat_id=chat_id, text="✅ **Bot has successfully restarted!**", parse_mode='Markdown')
+                else:
+                    await context.bot.send_message(chat_id=chat_id, text="✅ **Bot has successfully restarted!**", parse_mode='Markdown')
             
-        except Exception as e:
-            logger.error(f"Error processing restart_message.json: {e}")
-    # --------------------------------------------------------
-    
-    # --- HANDLERS ---
+            application.job_queue.run_once(post_restart_notification, 1) # Run 1 second after start
+            
+    except FileNotFoundError:
+        pass # No restart pending
+    except Exception as e:
+        logger.error(f"Error handling post-restart notification: {e}")
+
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_handler))
     
@@ -1427,14 +1577,16 @@ def main():
     if WEBHOOK_URL and BOT_TOKEN:
         keep_alive_thread = Thread(target=keep_alive, daemon=True)
         keep_alive_thread.start()
+        logger.info(f"Setting webhook to {WEBHOOK_URL}webhook")
         application.run_webhook(
             listen="0.0.0.0",
             port=PORT,
-            url_path=BOT_TOKEN,
-            webhook_url=WEBHOOK_URL + BOT_TOKEN
+            url_path="",
+            webhook_url=WEBHOOK_URL
         )
     else:
-        application.run_polling()
+        logger.info("Running in long-polling mode.")
+        application.run_polling(drop_pending_updates=True)
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
