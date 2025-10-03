@@ -23,12 +23,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_TOKEN_HERE")
 ADMIN_ID = 829342319
 LINK_EXPIRY_MINUTES = 5
 
-# Force‑subscribe channels (users must join these)
-FORCE_SUB_CHANNELS = [
-    "@YourChannel1",
-    "@YourChannel2",
-    # add more if needed
-]
+# Hardcoded FORCE_SUB_CHANNELS list is REMOVED. Channels will be fetched from DB.
 
 # Webhook / polling config
 PORT = int(os.environ.get('PORT', 8080))
@@ -124,11 +119,19 @@ def add_force_sub_channel(channel_username, channel_title):
     finally:
         conn.close()
 
-def get_all_force_sub_channels():
+def get_all_force_sub_channels(return_usernames_only=False):
+    """
+    Fetches all active force sub channels.
+    If return_usernames_only is True, returns a list of usernames.
+    """
     conn = sqlite3.connect('bot_data.db')
     cursor = conn.cursor()
-    cursor.execute('SELECT channel_username, channel_title FROM force_sub_channels WHERE is_active = 1 ORDER BY channel_title')
-    channels = cursor.fetchall()
+    if return_usernames_only:
+        cursor.execute('SELECT channel_username FROM force_sub_channels WHERE is_active = 1 ORDER BY channel_title')
+        channels = [row[0] for row in cursor.fetchall()]
+    else:
+        cursor.execute('SELECT channel_username, channel_title FROM force_sub_channels WHERE is_active = 1 ORDER BY channel_title')
+        channels = cursor.fetchall()
     conn.close()
     return channels
 
@@ -143,6 +146,7 @@ def get_force_sub_channel_info(channel_username):
 def delete_force_sub_channel(channel_username):
     conn = sqlite3.connect('bot_data.db')
     cursor = conn.cursor()
+    # Note: The original code marks it as inactive (is_active = 0), which is fine.
     cursor.execute('UPDATE force_sub_channels SET is_active = 0 WHERE channel_username = ?', (channel_username,))
     conn.commit()
     conn.close()
@@ -174,7 +178,12 @@ def get_link_info(link_id):
 
 async def is_user_subscribed(user_id: int, bot) -> bool:
     """Check if user is member of all force‑sub channels."""
-    for ch in FORCE_SUB_CHANNELS:
+    # MODIFIED: Use channels from DB instead of hardcoded list
+    force_sub_channels = get_all_force_sub_channels(return_usernames_only=True)
+    if not force_sub_channels:
+        return True # No channels configured, so everyone is "subscribed"
+
+    for ch in force_sub_channels:
         try:
             member = await bot.get_chat_member(chat_id=ch, user_id=user_id)
             # If the user has left or was kicked, treat as not subscribed
@@ -182,7 +191,8 @@ async def is_user_subscribed(user_id: int, bot) -> bool:
                 return False
         except Exception as e:
             logger.error(f"Error checking membership in {ch} for user {user_id}: {e}")
-            return False
+            # If bot cannot access channel (e.g., not admin), treat as not subscribed to be safe
+            return False 
     return True
 
 def force_sub_required(func):
@@ -192,6 +202,11 @@ def force_sub_required(func):
         user = update.effective_user
         if user is None:
             return await func(update, context, *args, **kwargs)
+        
+        # Get active channels from DB
+        force_sub_channels = get_all_force_sub_channels(return_usernames_only=True)
+        if not force_sub_channels:
+            return await func(update, context, *args, **kwargs) # No channels to check
 
         # ✅ Bypass force-sub for admin
         if user.id == ADMIN_ID:
@@ -201,12 +216,12 @@ def force_sub_required(func):
         if not subscribed:
             # Ask them to join and verify
             keyboard = []
-            for ch in FORCE_SUB_CHANNELS:
+            for ch in force_sub_channels: # Use DB channels here
                 keyboard.append([InlineKeyboardButton(f"📢 Join {ch}", url=f"https://t.me/{ch.lstrip('@')}")])
             keyboard.append([InlineKeyboardButton("✅ Verify Subscription", callback_data="verify_subscription")])
             reply_markup = InlineKeyboardMarkup(keyboard)
 
-            channels_text = "\n".join([f"• {ch}" for ch in FORCE_SUB_CHANNELS])
+            channels_text = "\n".join([f"• {ch}" for ch in force_sub_channels])
             text = (
                 "📢 <b>Please join our force‑subscription channel(s) first:</b>\n\n"
                 f"{channels_text}\n\n"
@@ -469,6 +484,26 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='HTML',
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📢 Manage Channels", callback_data="manage_force_sub")]])
         )
+        
+    # ADDED: Handle the prompt for deletion on the main management page
+    elif data == "delete_channel_prompt":
+        if user_id != ADMIN_ID:
+            await query.edit_message_text("❌ Admin only", parse_mode='HTML')
+            return
+        channels = get_all_force_sub_channels()
+        if not channels:
+            await query.answer("No channels to delete!", show_alert=True)
+            return
+
+        text = "🗑️ Choose a channel to delete (set inactive):"
+        keyboard = []
+        for uname, title in channels:
+            # Reuses the delete_ callback logic
+            keyboard.append([InlineKeyboardButton(title, callback_data=f"delete_{uname.lstrip('@')}")])
+        
+        keyboard.append([InlineKeyboardButton("🔙 BACK", callback_data="manage_force_sub")])
+        await query.edit_message_text(text=text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
+
 
     elif data in ["admin_back", "user_back", "channels_back"]:
         if user_id == ADMIN_ID:
@@ -527,8 +562,16 @@ async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT
     channel_identifier, creator_id, created_time = link_info
 
     try:
+        # The original code tries to convert to int if it looks like an ID
         if isinstance(channel_identifier, str) and channel_identifier.lstrip('-').isdigit():
             channel_identifier = int(channel_identifier)
+            
+        # Check link expiry
+        created_dt = datetime.fromisoformat(created_time)
+        if datetime.now() > created_dt + timedelta(minutes=LINK_EXPIRY_MINUTES):
+            await update.message.reply_text("❌ This link has expired.", parse_mode='HTML')
+            return
+
         chat = await context.bot.get_chat(channel_identifier)
         invite_link = await context.bot.create_chat_invite_link(
             chat.id,
@@ -574,7 +617,8 @@ async def send_admin_stats(query, context):
     except:
         pass
     user_count = get_user_count()
-    channel_count = len(get_all_force_sub_channels())
+    # Corrected: Use the count of active channels
+    channel_count = len(get_all_force_sub_channels()) 
     stats_text = (
         "📊 <b>BOT STATISTICS</b>\n\n"
         f"👤 Total Users: {user_count}\n"
@@ -588,7 +632,8 @@ async def send_admin_stats(query, context):
     await context.bot.send_message(chat_id=query.message.chat_id, text=stats_text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def show_force_sub_management(query, context):
-    channels = get_all_force_sub_channels()
+    # CORRECTED: This now fetches and processes the active channels correctly
+    channels = get_all_force_sub_channels(return_usernames_only=False)
     channels_text = "📢 <b>FORCE SUBSCRIPTION CHANNELS</b>\n\n"
     if not channels:
         channels_text += "No channels configured."
@@ -596,12 +641,16 @@ async def show_force_sub_management(query, context):
         channels_text += "<b>Configured Channels:</b>\n"
         for uname, title in channels:
             channels_text += f"• {title} (<code>{uname}</code>)\n"
+    
     keyboard = [[InlineKeyboardButton("➕ ADD NEW CHANNEL", callback_data="add_channel_start")]]
+    
     if channels:
         buttons = [InlineKeyboardButton(title, callback_data=f"channel_{uname.lstrip('@')}") for uname, title in channels]
         grouped = [buttons[i:i+2] for i in range(0, len(buttons), 2)]
         keyboard.extend(grouped)
-        keyboard.append([InlineKeyboardButton("🗑️ DELETE CHANNEL", callback_data="delete_channel_prompt")])
+        # Added a prompt for delete to simplify the flow
+        keyboard.append([InlineKeyboardButton("🗑️ DELETE CHANNEL", callback_data="delete_channel_prompt")]) 
+    
     keyboard.append([InlineKeyboardButton("🔙 BACK TO MENU", callback_data="admin_back")])
     try:
         await query.delete_message()
