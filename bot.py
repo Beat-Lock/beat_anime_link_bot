@@ -5,6 +5,8 @@ import secrets
 import requests
 import time
 import asyncio
+import sys # ADDED FOR RESTART
+import json # ADDED FOR RESTART
 from datetime import datetime, timedelta
 from functools import wraps
 from threading import Thread
@@ -331,16 +333,15 @@ def force_sub_required(func):
             channels_text_list = []
             
             for uname, title in force_sub_channels_info:
-                keyboard.append([InlineKeyboardButton(f"📢 Join {title}", url=f"https://t.me/{uname.lstrip('@')}")])
+                keyboard.append([InlineKeyboardButton(f"{title}", url=f"https://t.me/{uname.lstrip('@')}")])
                 channels_text_list.append(f"• {title} (<code>{uname}</code>)")
                 
-            keyboard.append([InlineKeyboardButton("✅ Verify Subscription", callback_data="verify_subscription")])
+            keyboard.append([InlineKeyboardButton("Click to continue", callback_data="verify_subscription")])
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             channels_text = "\n".join(channels_text_list)
             text = (
-                "📢 <b>Please join our force‑subscription channel(s) first:</b>\n\n"
-                f"{channels_text}\n\n"
+                "<b>Please join our world of anime:</b>\n\n"
                 "After joining, click <b>Verify Subscription</b>."
             )
 
@@ -354,7 +355,53 @@ def force_sub_required(func):
 
     return wrapper
 
-# ========== ADMIN COMMAND HANDLERS (for Ban/Unban/Add/Remove) ==========
+# ========== ADMIN COMMAND HANDLERS (for Ban/Unban/Add/Remove/Reload) ==========
+
+async def reload_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin command to restart the bot process gracefully. Can optionally take a message ID to send after restart."""
+    if update.effective_user.id != ADMIN_ID:
+        return
+
+    # Cleanup user state and messages before restart
+    await delete_update_message(update, context)
+    user_states.pop(update.effective_user.id, None)
+    await delete_bot_prompt(context, update.effective_chat.id)
+    
+    # Check for an optional message ID argument to send after reload
+    message_id_to_copy = None
+    if context.args:
+        try:
+            # Check for "admin" argument to skip message copy and show admin menu
+            if context.args[0].lower() == 'admin':
+                message_id_to_copy = 'admin'
+            else:
+                message_id_to_copy = int(context.args[0])
+        except ValueError:
+            await update.message.reply_text(
+                "❌ **Usage:** `/reload [optional message ID or 'admin']`\n**Example:** `/reload 1234` or `/reload admin`",
+                parse_mode='Markdown'
+            )
+            return
+
+    # 1. Store the chat ID for post-restart notification, and the message ID to copy
+    restart_info = {
+        'chat_id': update.effective_chat.id,
+        'admin_id': ADMIN_ID,
+        'message_id_to_copy': message_id_to_copy 
+    }
+    try:
+        with open('restart_message.json', 'w') as f:
+            json.dump(restart_info, f)
+    except Exception as e:
+        logger.error(f"Failed to write restart file: {e}")
+
+    # 2. Send the temporary message
+    await update.message.reply_text("🔄 **Bot is restarting...** Please wait.", parse_mode='Markdown')
+    
+    logger.info("Bot restart initiated by admin. Stopping application.")
+    
+    # 3. Stop the application loop
+    await context.application.stop()
 
 async def ban_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin command to ban a user by ID or username."""
@@ -1288,13 +1335,79 @@ def main():
 
     application = Application.builder().token(BOT_TOKEN).build()
     
+    # --- CHECK FOR RESTART FILE AND SEND NOTIFICATION (NEW LOGIC) ---
+    if os.path.exists('restart_message.json'):
+        try:
+            with open('restart_message.json', 'r') as f:
+                restart_info = json.load(f)
+            os.remove('restart_message.json') 
+
+            original_chat_id = restart_info['chat_id']
+            admin_id = restart_info['admin_id']
+            message_id_to_copy = restart_info.get('message_id_to_copy') 
+
+            async def post_restart_notification(context: ContextTypes.DEFAULT_TYPE):
+                try:
+                    # 1. Send the "bot reloaded" message to the original chat
+                    await context.bot.send_message(
+                        chat_id=original_chat_id, 
+                        text="✅ **Bot reloaded!** Service has been successfully reset.",
+                        parse_mode='Markdown'
+                    )
+                    
+                    # 2. Send the custom message or the Admin Menu
+                    if message_id_to_copy:
+                        # If the argument was 'admin', just show the menu
+                        if message_id_to_copy == 'admin':
+                             await send_admin_menu(original_chat_id, context)
+                             return
+                        
+                        # Otherwise, try to copy the message ID
+                        try:
+                            await context.bot.copy_message(
+                                chat_id=original_chat_id,
+                                from_chat_id=WELCOME_SOURCE_CHANNEL,
+                                message_id=message_id_to_copy
+                            )
+                        except Exception as e:
+                            logger.error(f"Failed to copy custom restart message ID {message_id_to_copy}: {e}")
+                            await context.bot.send_message(
+                                chat_id=original_chat_id,
+                                text="⚠️ **Custom message copy failed.** Falling back to Admin Panel.",
+                                parse_mode='Markdown'
+                            )
+                            await send_admin_menu(original_chat_id, context) 
+                    else:
+                        # Send the Admin Menu (default behavior)
+                        await send_admin_menu(original_chat_id, context) 
+                    
+                    # 3. Send private system notification to admin (only if not sent to the same chat)
+                    if admin_id != original_chat_id: 
+                         await context.bot.send_message(
+                            chat_id=admin_id, 
+                            text="⚠️ **System Notification:** The bot has successfully reloaded.",
+                            parse_mode='Markdown'
+                        )
+
+                except Exception as e:
+                    logger.error(f"Failed to send post-restart notification: {e}")
+
+            # Schedule the notification to run immediately after the bot starts its loop
+            application.job_queue.run_once(post_restart_notification, 1) 
+            logger.info("Post-restart notification scheduled.")
+            
+        except Exception as e:
+            logger.error(f"Error processing restart_message.json: {e}")
+    # --------------------------------------------------------
+    
     # --- HANDLERS ---
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_handler))
     
     # Admin-only command handlers
     admin_filter = filters.User(user_id=ADMIN_ID)
-    application.add_handler(CommandHandler("stats", stats_command, filters=admin_filter)) # <--- NEW /stats COMMAND
+    application.add_handler(CommandHandler("reload", reload_command, filters=admin_filter)) # <--- /reload COMMAND ADDED
+    application.add_handler(CommandHandler("stats", stats_command, filters=admin_filter)) 
     application.add_handler(CommandHandler("addchannel", add_channel_command, filters=admin_filter))
     application.add_handler(CommandHandler("removechannel", remove_channel_command, filters=admin_filter))
     application.add_handler(CommandHandler("banuser", ban_user_command, filters=admin_filter))
