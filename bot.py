@@ -400,8 +400,11 @@ async def reload_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     logger.info("Bot restart initiated by admin. Stopping application.")
     
-    # 3. Stop the application loop
-    await context.application.stop()
+    # 3. FORCE an exit instead of a graceful stop (This is the change!)
+    # await context.application.stop() # Commented out the graceful stop
+    sys.exit(0) # ADDED: Use sys.exit(0) for an immediate exit
+    # NOTE: The external process supervisor (Render/Heroku/etc) must be running
+    # to detect this exit and automatically start the script again.
 
 async def ban_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin command to ban a user by ID or username."""
@@ -1406,7 +1409,7 @@ def main():
     
     # Admin-only command handlers
     admin_filter = filters.User(user_id=ADMIN_ID)
-    application.add_handler(CommandHandler("reload", reload_command, filters=admin_filter)) # <--- /reload COMMAND ADDED
+    application.add_handler(CommandHandler("reload", reload_command, filters=admin_filter)) # <--- /reload COMMAND
     application.add_handler(CommandHandler("stats", stats_command, filters=admin_filter)) 
     application.add_handler(CommandHandler("addchannel", add_channel_command, filters=admin_filter))
     application.add_handler(CommandHandler("removechannel", remove_channel_command, filters=admin_filter))
