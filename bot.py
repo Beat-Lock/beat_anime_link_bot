@@ -23,7 +23,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_TOKEN_HERE")
 ADMIN_ID = 829342319
 LINK_EXPIRY_MINUTES = 5
 
-# Force-subscribe channels (user must join these)
+# Force‑subscribe channels (users must join these)
 FORCE_SUB_CHANNELS = [
     "@YourChannel1",
     "@YourChannel2",
@@ -177,7 +177,7 @@ async def is_user_subscribed(user_id: int, bot) -> bool:
     for ch in FORCE_SUB_CHANNELS:
         try:
             member = await bot.get_chat_member(chat_id=ch, user_id=user_id)
-            # If user has left or was kicked, not subscribed
+            # If the user has left or was kicked, treat as not subscribed
             if member.status in ['left', 'kicked']:
                 return False
         except Exception as e:
@@ -186,16 +186,20 @@ async def is_user_subscribed(user_id: int, bot) -> bool:
     return True
 
 def force_sub_required(func):
-    """Decorator for handlers to enforce force-subscribe check."""
+    """Decorator for handlers to enforce force-subscribe, but bypass for admin."""
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         user = update.effective_user
         if user is None:
             return await func(update, context, *args, **kwargs)
 
+        # ✅ Bypass force-sub for admin
+        if user.id == ADMIN_ID:
+            return await func(update, context, *args, **kwargs)
+
         subscribed = await is_user_subscribed(user.id, context.bot)
         if not subscribed:
-            # Build a keyboard to join channels + verify
+            # Ask them to join and verify
             keyboard = []
             for ch in FORCE_SUB_CHANNELS:
                 keyboard.append([InlineKeyboardButton(f"📢 Join {ch}", url=f"https://t.me/{ch.lstrip('@')}")])
@@ -204,21 +208,23 @@ def force_sub_required(func):
 
             channels_text = "\n".join([f"• {ch}" for ch in FORCE_SUB_CHANNELS])
             text = (
-                "📢 <b>Please join our force-subscription channel(s) first:</b>\n\n"
+                "📢 <b>Please join our force‑subscription channel(s) first:</b>\n\n"
                 f"{channels_text}\n\n"
-                "After joining, click **Verify Subscription**."
+                "After joining, click <b>Verify Subscription</b>."
             )
-            # Send or edit message appropriately
+
             if update.message:
                 await update.message.reply_text(text, parse_mode='HTML', reply_markup=reply_markup)
             elif update.callback_query:
                 await update.callback_query.edit_message_text(text, parse_mode='HTML', reply_markup=reply_markup)
-            return
-        # If subscribed, proceed to the real handler
+            return  # block further handler execution
+
+        # If subscribed (or admin), proceed
         return await func(update, context, *args, **kwargs)
+
     return wrapper
 
-# ========== YOUR BOT HANDLERS (modified) ==========
+# ========== BOT HANDLERS ==========
 
 @force_sub_required
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -230,7 +236,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_channel_link_deep(update, context, link_id)
         return
 
-    if is_admin(user.id):
+    if user.id == ADMIN_ID:
         await send_admin_menu(update.effective_chat.id, context)
     else:
         keyboard = [
@@ -263,10 +269,8 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
 
     state = user_states[user_id]
 
-    # Broadcast
     if state == PENDING_BROADCAST:
-        if user_id in user_states:
-            del user_states[user_id]
+        user_states.pop(user_id, None)
         await broadcast_message_to_all_users(update, context, update.message)
         await send_admin_menu(update.effective_chat.id, context)
         return
@@ -314,7 +318,7 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
         except Exception as e:
             logger.error(f"Error accessing channel {channel_identifier}: {e}")
             await update.message.reply_text(
-                "❌ Cannot access channel. Make sure bot is added as admin.",
+                "❌ Cannot access channel. Make sure bot is admin in that channel.",
                 parse_mode='HTML'
             )
             return
@@ -334,12 +338,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     data = query.data
 
-    # If verify subscription button
     if data == "verify_subscription":
-        # Trigger /start to re-check
         return await start(update, context)
 
-    # Clear states if going back
     if user_id in user_states:
         current = user_states[user_id]
         if current in [PENDING_BROADCAST, GENERATE_LINK_CHANNEL_USERNAME, ADD_CHANNEL_TITLE, ADD_CHANNEL_USERNAME] and data in ["admin_back", "admin_stats", "manage_force_sub", "generate_links", "user_management"]:
@@ -353,7 +354,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "admin_broadcast_start":
-        if not is_admin(user_id):
+        if user_id != ADMIN_ID:
             await query.edit_message_text("❌ Admin only", parse_mode='HTML')
             return
         user_states[user_id] = PENDING_BROADCAST
@@ -369,28 +370,24 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    if data == "verify_subscription":
-        # already handled above
-        pass
-
-    elif data.startswith("verify_deep_"):
+    if data.startswith("verify_deep_"):
         link_id = data[12:]
         return await handle_channel_link_deep(update, context, link_id)
 
-    elif data == "admin_stats":
-        if not is_admin(user_id):
+    if data == "admin_stats":
+        if user_id != ADMIN_ID:
             await query.edit_message_text("❌ Admin only", parse_mode='HTML')
             return
         await send_admin_stats(query, context)
 
     elif data == "user_management":
-        if not is_admin(user_id):
+        if user_id != ADMIN_ID:
             await query.edit_message_text("❌ Admin only", parse_mode='HTML')
             return
         await send_user_management(query, context, offset=0)
 
     elif data.startswith("user_page_"):
-        if not is_admin(user_id):
+        if user_id != ADMIN_ID:
             await query.edit_message_text("❌ Admin only", parse_mode='HTML')
             return
         try:
@@ -400,13 +397,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_user_management(query, context, offset=offset)
 
     elif data == "manage_force_sub":
-        if not is_admin(user_id):
+        if user_id != ADMIN_ID:
             await query.edit_message_text("❌ Admin only", parse_mode='HTML')
             return
         await show_force_sub_management(query, context)
 
     elif data == "generate_links":
-        if not is_admin(user_id):
+        if user_id != ADMIN_ID:
             await query.edit_message_text("❌ Admin only", parse_mode='HTML')
             return
         user_states[user_id] = GENERATE_LINK_CHANNEL_USERNAME
@@ -421,7 +418,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 CANCEL", callback_data="admin_back")]])
         )
     elif data == "add_channel_start":
-        if not is_admin(user_id):
+        if user_id != ADMIN_ID:
             await query.edit_message_text("❌ Admin only", parse_mode='HTML')
             return
         user_states[user_id] = ADD_CHANNEL_USERNAME
@@ -437,13 +434,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif data.startswith("channel_"):
-        if not is_admin(user_id):
+        if user_id != ADMIN_ID:
             await query.edit_message_text("❌ Admin only", parse_mode='HTML')
             return
         await show_channel_details(query, context, data[8:])
 
     elif data.startswith("delete_"):
-        if not is_admin(user_id):
+        if user_id != ADMIN_ID:
             await query.edit_message_text("❌ Admin only", parse_mode='HTML')
             return
         channel_username_clean = data[7:]
@@ -461,20 +458,20 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
     elif data.startswith("confirm_delete_"):
-        if not is_admin(user_id):
+        if user_id != ADMIN_ID:
             await query.edit_message_text("❌ Admin only", parse_mode='HTML')
             return
         channel_username_clean = data[15:]
         channel_username = '@' + channel_username_clean
         delete_force_sub_channel(channel_username)
         await query.edit_message_text(
-            f"✅ Channel {channel_username} removed from force-sub list.",
+            f"✅ Channel {channel_username} removed from force‑sub list.",
             parse_mode='HTML',
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📢 Manage Channels", callback_data="manage_force_sub")]])
         )
 
     elif data in ["admin_back", "user_back", "channels_back"]:
-        if is_admin(user_id):
+        if user_id == ADMIN_ID:
             await send_admin_menu(query.message.chat_id, context, query)
         else:
             keyboard = [
@@ -577,7 +574,7 @@ async def send_admin_stats(query, context):
     except:
         pass
     user_count = get_user_count()
-    channel_count = get_force_sub_channel_count()
+    channel_count = len(get_all_force_sub_channels())
     stats_text = (
         "📊 <b>BOT STATISTICS</b>\n\n"
         f"👤 Total Users: {user_count}\n"
@@ -679,7 +676,6 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Exception in update: {context.error}")
 
 async def cleanup_task(context: ContextTypes.DEFAULT_TYPE):
-    # Optionally remove old links older than some days
     conn = sqlite3.connect('bot_data.db')
     cursor = conn.cursor()
     cutoff = datetime.now() - timedelta(days=7)
@@ -704,11 +700,8 @@ def main():
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_handler))
-    # Only admin messages in admin state
     admin_filter = filters.User(user_id=ADMIN_ID)
     application.add_handler(MessageHandler(admin_filter & ~filters.COMMAND, handle_admin_message))
-    # Could add a general message handler if desired; ensure decorated if so
-
     application.add_error_handler(error_handler)
 
     if application.job_queue:
