@@ -38,6 +38,17 @@ ADMIN_CONTACT_USERNAME = "Beat_Anime_Ocean"
 ADD_CHANNEL_USERNAME, ADD_CHANNEL_TITLE, GENERATE_LINK_CHANNEL_USERNAME, PENDING_BROADCAST = range(4)
 user_states = {}
 
+# ========== HELPER FUNCTION: AUTO-DELETE ==========
+
+async def delete_update_message(update: Update):
+    """Safely attempts to delete the message associated with the incoming update."""
+    if update.message:
+        try:
+            await update.message.delete()
+        except Exception as e:
+            # Ignore errors if the message is too old or already deleted
+            logger.warning(f"Could not delete message for user {update.effective_user.id}: {e}")
+
 # ========== DATABASE FUNCTIONS ==========
 
 def init_db():
@@ -175,12 +186,11 @@ def get_link_info(link_id):
     result = cursor.fetchone()
     conn.close()
     return result
-
+    
 # ========== FORCE SUBSCRIPTION LOGIC ==========
 
 async def is_user_subscribed(user_id: int, bot) -> bool:
     """Check if user is member of all force‑sub channels."""
-    # We only need usernames for the API check
     force_sub_channels = get_all_force_sub_channels(return_usernames_only=True)
     if not force_sub_channels:
         return True
@@ -192,7 +202,6 @@ async def is_user_subscribed(user_id: int, bot) -> bool:
                 return False
         except Exception as e:
             logger.error(f"Error checking membership in {ch} for user {user_id}: {e}")
-            # If bot can't access, we assume they are not subscribed for safety/error.
             return False 
     return True
 
@@ -204,7 +213,6 @@ def force_sub_required(func):
         if user is None:
             return await func(update, context, *args, **kwargs)
         
-        # Get channels with both username and title for button/text generation
         force_sub_channels_info = get_all_force_sub_channels(return_usernames_only=False)
         
         if not force_sub_channels_info:
@@ -213,18 +221,18 @@ def force_sub_required(func):
         if user.id == ADMIN_ID:
             return await func(update, context, *args, **kwargs)
 
-        # Check membership using only the usernames
         subscribed = await is_user_subscribed(user.id, context.bot)
         
         if not subscribed:
+            # Delete the message that triggered the check (command or message)
+            await delete_update_message(update)
+            
             # Build the keyboard and text using the friendly title
             keyboard = []
             channels_text_list = []
             
             for uname, title in force_sub_channels_info:
-                # Use the title for the button text
-                keyboard.append([InlineKeyboardButton(f" {title}", url=f"https://t.me/{uname.lstrip('@')}")])
-                # Use the title in the message body text, with username in code tags
+                keyboard.append([InlineKeyboardButton(f"📢 Join {title}", url=f"https://t.me/{uname.lstrip('@')}")])
                 channels_text_list.append(f"• {title} (<code>{uname}</code>)")
                 
             keyboard.append([InlineKeyboardButton("✅ Verify Subscription", callback_data="verify_subscription")])
@@ -232,7 +240,7 @@ def force_sub_required(func):
 
             channels_text = "\n".join(channels_text_list)
             text = (
-                " <b>Please join our latest channel(s) first:</b>\n\n"
+                "📢 <b>Please join our force‑subscription channel(s) first:</b>\n\n"
                 f"{channels_text}\n\n"
                 "After joining, click <b>Verify Subscription</b>."
             )
@@ -240,7 +248,6 @@ def force_sub_required(func):
             if update.message:
                 await update.message.reply_text(text, parse_mode='HTML', reply_markup=reply_markup)
             elif update.callback_query:
-                # Use query.edit_message_text for callback responses
                 await update.callback_query.edit_message_text(text, parse_mode='HTML', reply_markup=reply_markup)
             return
         
@@ -248,12 +255,15 @@ def force_sub_required(func):
 
     return wrapper
 
-# ========== NEW ADMIN COMMAND HANDLERS ==========
+# ========== ADMIN COMMAND HANDLERS (WITH DELETION) ==========
 
 async def add_channel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin command to add a force-sub channel via /addchannel @username title."""
     if update.effective_user.id != ADMIN_ID:
         return
+
+    # Deletes the /addchannel command message
+    await delete_update_message(update)
 
     args = context.args
     if len(args) < 2:
@@ -271,7 +281,6 @@ async def add_channel_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
         
     try:
-        # Check if bot can access the channel (optional check, but good practice)
         await context.bot.get_chat(channel_username)
     except Exception as e:
         logger.warning(f"Bot failed to get chat {channel_username}: {e}")
@@ -279,7 +288,6 @@ async def add_channel_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"⚠️ Bot cannot access channel **{channel_username}**. Make sure the bot is an **Admin** in that channel.",
             parse_mode='Markdown'
         )
-        # Proceed with adding, as the admin might fix permissions later.
 
     if add_force_sub_channel(channel_username, channel_title):
         await update.message.reply_text(
@@ -293,6 +301,9 @@ async def remove_channel_command(update: Update, context: ContextTypes.DEFAULT_T
     """Admin command to remove a force-sub channel via /removechannel @username."""
     if update.effective_user.id != ADMIN_ID:
         return
+        
+    # Deletes the /removechannel command message
+    await delete_update_message(update)
 
     args = context.args
     if len(args) != 1:
@@ -322,10 +333,13 @@ async def remove_channel_command(update: Update, context: ContextTypes.DEFAULT_T
         parse_mode='Markdown'
     )
 
-# ========== BOT HANDLERS (existing logic) ==========
+# ========== BOT HANDLERS (WITH DELETION) ==========
 
 @force_sub_required
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Deletes the incoming /start command message
+    await delete_update_message(update)
+    
     user = update.effective_user
     add_user(user.id, user.username, user.first_name, user.last_name)
 
@@ -339,7 +353,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         keyboard = [
             [InlineKeyboardButton("ᴀɴɪᴍᴇ ᴄʜᴀɴɴᴇʟ", url=PUBLIC_ANIME_CHANNEL_URL)],
-            [InlineKeyboardButton("ᴄᴏɴᴛᴀᴄᴛ ᴀᴅᴍɪɴ", url=f"https://t.me/{ADMIN_CONTACT_USERNAME}")],
+            [InlineKeyboardButton("ᴄᴏɴᴛᴀᴄT ᴀᴅᴍɪɴ", url=f"https://t.me/{ADMIN_CONTACT_USERNAME}")],
             [InlineKeyboardButton("ʀᴇǫᴜᴇsᴛ ᴀɴɪᴍᴇ ᴄʜᴀɴɴᴇʟ", url=REQUEST_CHANNEL_URL)],
             [
                 InlineKeyboardButton("ᴀʙᴏᴜᴛ ᴍᴇ", callback_data="about_bot"),
@@ -347,6 +361,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # The welcome message is the EXCEPTION and is NOT deleted.
         try:
             await context.bot.copy_message(
                 chat_id=update.effective_chat.id,
@@ -362,10 +378,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @force_sub_required
 async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    
+    # Deletes the admin's input message (e.g., channel username/title for force-sub)
+    await delete_update_message(update)
+    
     if user_id not in user_states:
         return
 
     state = user_states[user_id]
+    text = update.message.text
 
     if state == PENDING_BROADCAST:
         user_states.pop(user_id, None)
@@ -373,9 +394,8 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
         await send_admin_menu(update.effective_chat.id, context)
         return
 
-    text = update.message.text
     if text is None:
-        await update.message.reply_text("❌ Please send text message.", parse_mode='HTML')
+        await update.message.reply_text("❌ Please send a text message.", parse_mode='HTML')
         return
 
     if state == ADD_CHANNEL_USERNAME:
@@ -446,6 +466,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "close_message":
         try:
+            # This is the user's explicit action to clear the welcome message
             await query.delete_message()
         except Exception as e:
             logger.warning(f"Could not delete message: {e}")
@@ -716,8 +737,6 @@ async def show_force_sub_management(query, context):
     keyboard = [[InlineKeyboardButton("➕ ADD NEW CHANNEL", callback_data="add_channel_start")]]
     
     if channels:
-        # Create buttons for managing existing channels
-        # Note: These buttons are primarily for displaying details, the delete prompt is separate
         buttons = [InlineKeyboardButton(title, callback_data=f"channel_{uname.lstrip('@')}") for uname, title in channels]
         grouped = [buttons[i:i+2] for i in range(0, len(buttons), 2)]
         keyboard.extend(grouped)
@@ -806,7 +825,6 @@ async def cleanup_task(context: ContextTypes.DEFAULT_TYPE):
     conn.close()
 
 def keep_alive():
-    # Helper for services like Render that require frequent requests to prevent sleep
     while True:
         time.sleep(840)
         try:
