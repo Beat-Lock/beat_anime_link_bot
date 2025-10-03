@@ -1,6 +1,6 @@
 import os
 import logging
-# import sqlite3  # REMOVED: Using PostgreSQL with pg8000
+# import sqlite3  # REMOVED: No longer used
 import pg8000.dbapi # ADDED: For PostgreSQL connection
 import ssl          # ADDED: For SSL context
 import certifi      # ADDED: For root certificates (CRITICAL FIX)
@@ -87,10 +87,8 @@ def get_conn():
     # 1. Parse the DATABASE_URL (Render format: postgres://user:pass@host:port/dbname)
     url_parts = requests.utils.urlparse(DATABASE_URL)
     
-    # 2. Prepare SSL context for Render (CRITICAL FIX for WRONG_VERSION_NUMBER)
+    # 2. Prepare SSL context for Render (CRITICAL FIX for WRONG_VERSION_NUMBER/SSL issues)
     ssl_context = ssl.create_default_context(cafile=certifi.where())
-    # Note: On Render, host name verification can sometimes be tricky with internal naming
-    # ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_REQUIRED
     
     # 3. Connect using pg8000
@@ -116,7 +114,7 @@ def db_operation(sql, params=None, fetch=False, fetch_one=False):
         conn = get_conn()
         cursor = conn.cursor()
         
-        # pg8000 uses '%' for parameter placeholders, but we should use the %s style for passing params safely
+        # pg8000 uses %s parameter style, which is the default for passing params safely
         cursor.execute(sql, params if params else []) 
         
         if fetch_one:
@@ -130,7 +128,7 @@ def db_operation(sql, params=None, fetch=False, fetch_one=False):
         logger.error(f"DB Error on '{sql[:50]}...': {e}")
         if conn:
             conn.rollback()
-        # Propagate exception to calling function to handle (e.g., failed add_user)
+        # Propagate exception to calling function to handle 
         raise 
     finally:
         if conn:
@@ -298,6 +296,7 @@ def get_link_info(link_id):
 
 def cleanup_old_links():
     """Removes links older than LINK_EXPIRY_MINUTES."""
+    # Use timezone-aware comparison
     cutoff_time = datetime.now() - timedelta(minutes=LINK_EXPIRY_MINUTES)
     sql = 'DELETE FROM generated_links WHERE created_time < %s'
     # pg8000/PostgreSQL can compare datetime objects directly
@@ -310,7 +309,7 @@ def cleanup_old_links():
 # ========== FORCE SUBSCRIPTION LOGIC (with Ban Check) ==========
 
 async def is_user_subscribed(user_id: int, bot) -> bool:
-    """Check if user is member of all force‑sub channels."""
+    """Check if user is member of all force-sub channels."""
     force_sub_channels = get_all_force_sub_channels(return_usernames_only=True)
     if not force_sub_channels:
         return True
@@ -772,7 +771,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id == ADMIN_ID and user_id in user_states:
         current = user_states[user_id]
         if current in [PENDING_BROADCAST, GENERATE_LINK_CHANNEL_USERNAME, ADD_CHANNEL_TITLE, ADD_CHANNEL_USERNAME] and data in ["admin_back", "manage_force_sub", "user_management"]:
-            await delete_bot_prompt(context, query.message.chat_id)
+            await delete_bot_prompt(context, query.message.chat.id)
             user_states.pop(user_id, None)
 
     if data == "close_message":
@@ -788,7 +787,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("You are not authorized", show_alert=True)
             return
         user_states.pop(user_id, None)
-        await delete_bot_prompt(context, query.message.chat_id)
+        await delete_bot_prompt(context, query.message.chat.id)
         try:
             target_user_id = int(data[12:])
             await send_single_user_management(query, context, target_user_id)
@@ -1007,11 +1006,7 @@ async def broadcast_message_throttled(context: ContextTypes.DEFAULT_TYPE, messag
 
 async def broadcast_message_to_all_users(update: Update, context: ContextTypes.DEFAULT_TYPE, message_to_copy):
     """Starts the (potentially) throttled broadcast process in the background."""
-    # Ensure the database is accessed in a thread-safe manner (though all our DB functions are thread-safe as they open/close connections per call)
-    
     # Execute the potentially long-running operation without blocking the Telegram Bot handler thread
-    # Note: Since the core logic uses asyncio.sleep, we can run this directly if Application.run_webhook is used.
-    # We wrap it in a separate task to avoid blocking the current handler.
     context.application.create_task(broadcast_message_throttled(context, message_to_copy))
 
 
@@ -1166,8 +1161,11 @@ async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT
     channel_identifier, link_user_id, created_time = link_info
     
     # Check expiry
-    expiry_time = created_time.replace(tzinfo=None) + timedelta(minutes=LINK_EXPIRY_MINUTES)
-    if datetime.now() > expiry_time:
+    # Note: Datetime objects from pg8000 might be timezone-aware or naive. We handle that comparison here.
+    expiry_time = created_time + timedelta(minutes=LINK_EXPIRY_MINUTES)
+    
+    # Simple check for both naive/aware comparison with a small tolerance for safety
+    if datetime.now(created_time.tzinfo) > expiry_time:
         text = "⏳ **Error:** This link has expired. Please ask the admin to generate a new one."
         keyboard = [[InlineKeyboardButton("🔙 BACK TO START", callback_data="back_to_start")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1202,11 +1200,6 @@ async def handle_channel_link_deep(update: Update, context: ContextTypes.DEFAULT
     
     # Retrieve the target channel's welcome message
     try:
-        # Assuming the channel admin wants to copy a specific message ID from the channel
-        # For simplicity, we use the original WELCOME_SOURCE_MESSAGE_ID for all channels, 
-        # but in a real scenario, this should point to a specific message *within* the channel_identifier chat.
-        # Since we don't know the target channel's actual message ID, we'll redirect them to the channel itself for now.
-        
         chat = await context.bot.get_chat(channel_identifier)
         channel_title = chat.title
         
