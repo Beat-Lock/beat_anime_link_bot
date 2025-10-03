@@ -313,12 +313,13 @@ def force_sub_required(func):
                 keyboard.append([InlineKeyboardButton(f"{title}", url=f"https://t.me/{uname.lstrip('@')}")])
                 channels_text_list.append(f"• {title} (<code>{uname}</code>)")
                 
-            keyboard.append([InlineKeyboardButton("click to continue", callback_data="verify_subscription")])
+            keyboard.append([InlineKeyboardButton("Click to continue", callback_data="verify_subscription")])
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             channels_text = "\n".join(channels_text_list)
             text = (
-                " <b>Please join our word of anime first:</b>\n\n"
+                " <b>Please join our World of anime:</b>\n\n"
+                "
                 "After joining, click <b>Verify Subscription</b>."
             )
 
@@ -341,6 +342,11 @@ async def ban_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await delete_update_message(update)
+    
+    # --- Backlog-free: Clear any lingering admin state/prompt ---
+    user_states.pop(update.effective_user.id, None)
+    await delete_bot_prompt(context, update.effective_chat.id)
+    # -----------------------------------------------------------
 
     args = context.args
     if len(args) != 1:
@@ -379,6 +385,11 @@ async def unban_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     await delete_update_message(update)
+
+    # --- Backlog-free: Clear any lingering admin state/prompt ---
+    user_states.pop(update.effective_user.id, None)
+    await delete_bot_prompt(context, update.effective_chat.id)
+    # -----------------------------------------------------------
 
     args = context.args
     if len(args) != 1:
@@ -1106,10 +1117,10 @@ def main():
     application.add_handler(CommandHandler("addchannel", add_channel_command, filters=admin_filter))
     application.add_handler(CommandHandler("removechannel", remove_channel_command, filters=admin_filter))
     
-    # --- NEW BAN/UNBAN COMMANDS ---
+    # --- BAN/UNBAN COMMANDS (with backlog-free additions) ---
     application.add_handler(CommandHandler("banuser", ban_user_command, filters=admin_filter))
     application.add_handler(CommandHandler("unbanuser", unban_user_command, filters=admin_filter))
-    # -----------------------------
+    # -------------------------------------------------------
 
     application.add_handler(MessageHandler(admin_filter & ~filters.COMMAND, handle_admin_message))
     
